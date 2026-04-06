@@ -12,7 +12,7 @@ export function useListings() {
   useEffect(() => {
     const fetchListings = async () => {
       setLoading(true)
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('listings')
         .select('*, store:stores(*)')
         .eq('is_active', true)
@@ -20,6 +20,7 @@ export function useListings() {
         .gt('quantity_available', 0)
         .order('created_at', { ascending: false })
 
+      if (error) console.error('useListings error:', error)
       setListings((data as Listing[]) ?? [])
       setLoading(false)
     }
