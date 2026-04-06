@@ -52,7 +52,7 @@ export default function Navbar() {
   const pathname = usePathname()
 
   // Hide navbar on login and dashboard pages
-  if (pathname.startsWith('/login') || pathname.startsWith('/dashboard')) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
     return null
   }
 

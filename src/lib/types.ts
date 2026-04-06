@@ -2,7 +2,7 @@ export interface Profile {
   id: string
   full_name: string
   phone: string | null
-  role: 'consumer' | 'business'
+  role: 'consumer' | 'business' | 'admin'
   avatar_url: string | null
   created_at: string
 }
@@ -21,6 +21,7 @@ export interface Store {
   image_url: string | null
   category: 'bakery' | 'restaurant' | 'grocery' | 'cafe' | 'other'
   is_active: boolean
+  is_approved: boolean
   created_at: string
 }
 

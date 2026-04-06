@@ -13,8 +13,7 @@ import { formatPrice, calcDiscountPercent, formatPickupWindow, generatePickupCod
 import type { Listing } from '@/lib/types'
 
 export default function HomePage() {
-  const [city, setCity] = useState('Cagayan de Oro')
-  const { listings, loading } = useListings(city)
+  const { listings, loading } = useListings()
   const { user } = useAuth()
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null)
   const [quantity, setQuantity] = useState(1)
@@ -62,21 +61,13 @@ export default function HomePage() {
         </p>
       </div>
 
-      {/* City Filter */}
-      <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
-        {['Cagayan de Oro', 'Manila', 'Cebu', 'Davao'].map((c) => (
-          <button
-            key={c}
-            onClick={() => setCity(c)}
-            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-              city === c
-                ? 'bg-dark-green text-white'
-                : 'bg-white text-dark-green/60 border border-dark-green/10'
-            }`}
-          >
-            {c}
-          </button>
-        ))}
+      {/* Location */}
+      <div className="flex items-center gap-1.5 mb-5 text-sm text-dark-green/60">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+          <circle cx="12" cy="10" r="3" />
+        </svg>
+        Cagayan de Oro
       </div>
 
       {/* Listings Grid */}
@@ -91,7 +82,7 @@ export default function HomePage() {
           <p className="text-5xl mb-3">🍽</p>
           <p className="font-display font-semibold text-dark-green">No listings yet</p>
           <p className="text-sm text-dark-green/50 mt-1">
-            Check back soon for deals in {city}
+            Check back soon for deals in Cagayan de Oro
           </p>
         </div>
       ) : (

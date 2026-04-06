@@ -50,8 +50,8 @@ export default function ProfilePage() {
           <div>
             <h2 className="font-display font-semibold text-lg">{profile.full_name}</h2>
             <p className="text-sm text-dark-green/50">{user.email}</p>
-            <Badge variant={profile.role === 'business' ? 'olive' : 'default'} className="mt-1">
-              {profile.role === 'business' ? 'Store Owner' : 'Buyer'}
+            <Badge variant={profile.role === 'admin' ? 'gold' : profile.role === 'business' ? 'olive' : 'default'} className="mt-1">
+              {profile.role === 'admin' ? 'Admin' : profile.role === 'business' ? 'Store Owner' : 'Buyer'}
             </Badge>
           </div>
         </div>
@@ -63,6 +63,20 @@ export default function ProfilePage() {
             <div>
               <p className="font-semibold text-sm">Store Dashboard</p>
               <p className="text-xs text-dark-green/50">Manage your listings and orders</p>
+            </div>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </Link>
+        </Card>
+      )}
+
+      {profile.role === 'admin' && (
+        <Card className="p-4 mb-4">
+          <Link href="/admin" className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-sm">Admin Panel</p>
+              <p className="text-xs text-dark-green/50">Approve stores and manage the platform</p>
             </div>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M9 18l6-6-6-6" />

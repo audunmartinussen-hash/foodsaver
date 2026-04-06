@@ -164,6 +164,21 @@ export default function DashboardPage() {
         <p className="text-sm text-dark-green/50">{store?.address}</p>
       </div>
 
+      {/* Pending Approval Banner */}
+      {store && !store.is_approved && (
+        <div className="bg-gold/15 border border-gold/30 rounded-2xl p-4 mb-5">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">⏳</span>
+            <div>
+              <p className="font-semibold text-sm text-dark-green">Pending Approval</p>
+              <p className="text-xs text-dark-green/60 mt-0.5">
+                Your store is being reviewed by our team. Your listings will be visible to customers once approved.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-6">
         <Card className="p-4 text-center">
