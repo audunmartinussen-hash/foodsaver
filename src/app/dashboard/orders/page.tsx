@@ -6,9 +6,24 @@ import { useAuth } from '@/hooks/useAuth'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
 import { formatPrice, formatPickupWindow } from '@/lib/utils'
 import type { Order, Store } from '@/lib/types'
+
+const filterTabs = [
+  { key: 'all', label: 'All' },
+  { key: 'reserved', label: 'Pending' },
+  { key: 'picked_up', label: 'Completed' },
+  { key: 'cancelled', label: 'Cancelled' },
+  { key: 'no_show', label: 'No Show' },
+]
+
+const statusConfig: Record<string, { label: string; variant: 'gold' | 'olive' | 'success' | 'error'; icon: string }> = {
+  reserved: { label: 'Awaiting Pickup', variant: 'gold', icon: '🕐' },
+  confirmed: { label: 'Confirmed', variant: 'olive', icon: '📋' },
+  picked_up: { label: 'Completed', variant: 'success', icon: '✅' },
+  cancelled: { label: 'Cancelled', variant: 'error', icon: '❌' },
+  no_show: { label: 'No Show', variant: 'error', icon: '🚫' },
+}
 
 export default function StoreOrdersPage() {
   const { user } = useAuth()
@@ -17,6 +32,9 @@ export default function StoreOrdersPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<string>('all')
   const [verifyCode, setVerifyCode] = useState<Record<string, string>>({})
+  const [verifyError, setVerifyError] = useState<Record<string, boolean>>({})
+  const [verifying, setVerifying] = useState<Record<string, boolean>>({})
+  const [markingNoShow, setMarkingNoShow] = useState<Record<string, boolean>>({})
   const supabase = createClient()
 
   useEffect(() => {
@@ -49,9 +67,12 @@ export default function StoreOrdersPage() {
   const markPickedUp = async (order: Order) => {
     const code = verifyCode[order.id]
     if (code !== order.pickup_code) {
-      alert('Incorrect pickup code')
+      setVerifyError({ ...verifyError, [order.id]: true })
+      setTimeout(() => setVerifyError({ ...verifyError, [order.id]: false }), 2000)
       return
     }
+
+    setVerifying({ ...verifying, [order.id]: true })
 
     const { error } = await supabase
       .from('orders')
@@ -65,26 +86,44 @@ export default function StoreOrdersPage() {
       setOrders(orders.map(o =>
         o.id === order.id ? { ...o, status: 'picked_up', picked_up_at: new Date().toISOString() } : o
       ))
+      setVerifyCode({ ...verifyCode, [order.id]: '' })
     }
+    setVerifying({ ...verifying, [order.id]: false })
+  }
+
+  const markNoShow = async (order: Order) => {
+    setMarkingNoShow({ ...markingNoShow, [order.id]: true })
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: 'no_show' })
+      .eq('id', order.id)
+
+    if (!error) {
+      setOrders(orders.map(o =>
+        o.id === order.id ? { ...o, status: 'no_show' } : o
+      ))
+    }
+    setMarkingNoShow({ ...markingNoShow, [order.id]: false })
   }
 
   const filteredOrders = filter === 'all'
     ? orders
     : orders.filter(o => o.status === filter)
 
-  const statusConfig: Record<string, { label: string; variant: 'gold' | 'olive' | 'success' | 'error' }> = {
-    reserved: { label: 'Reserved', variant: 'gold' },
-    confirmed: { label: 'Confirmed', variant: 'olive' },
-    picked_up: { label: 'Picked Up', variant: 'success' },
-    cancelled: { label: 'Cancelled', variant: 'error' },
-    no_show: { label: 'No Show', variant: 'error' },
+  const orderCounts = {
+    all: orders.length,
+    reserved: orders.filter(o => o.status === 'reserved').length,
+    picked_up: orders.filter(o => o.status === 'picked_up').length,
+    cancelled: orders.filter(o => o.status === 'cancelled').length,
+    no_show: orders.filter(o => o.status === 'no_show').length,
   }
 
   if (loading) {
     return (
       <div className="space-y-3">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-28 bg-white rounded-2xl animate-pulse" />
+          <div key={i} className="h-32 bg-white rounded-2xl animate-pulse" />
         ))}
       </div>
     )
@@ -92,76 +131,142 @@ export default function StoreOrdersPage() {
 
   return (
     <div>
-      <h2 className="font-display text-xl font-bold mb-4">Orders</h2>
+      <div className="mb-4">
+        <h2 className="font-display text-xl font-bold">Orders</h2>
+        <p className="text-xs text-dark-green/45 mt-0.5">
+          {orders.length} total · {orderCounts.reserved} awaiting pickup
+        </p>
+      </div>
 
-      {/* Filter */}
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-        {['all', 'reserved', 'confirmed', 'picked_up', 'cancelled'].map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-              filter === f
-                ? 'bg-dark-green text-white'
-                : 'bg-white text-dark-green/50 border border-dark-green/10'
-            }`}
-          >
-            {f === 'all' ? 'All' : f === 'picked_up' ? 'Picked Up' : f === 'no_show' ? 'No Show' : f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
-        ))}
+      {/* Filter Tabs */}
+      <div className="flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+        {filterTabs.map((tab) => {
+          const count = orderCounts[tab.key as keyof typeof orderCounts] ?? 0
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setFilter(tab.key)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                filter === tab.key
+                  ? 'bg-dark-green text-white shadow-sm'
+                  : 'bg-white text-dark-green/50 border border-dark-green/10 hover:border-dark-green/20'
+              }`}
+            >
+              {tab.label}
+              {count > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                  filter === tab.key ? 'bg-white/20' : 'bg-dark-green/8'
+                }`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {filteredOrders.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-4xl mb-2">🧾</p>
-          <p className="text-dark-green/50">No orders found</p>
-        </div>
+        <Card className="p-8 text-center">
+          <p className="text-3xl mb-3">🧾</p>
+          <p className="font-semibold text-dark-green">No orders here</p>
+          <p className="text-sm text-dark-green/40 mt-1">
+            {filter === 'all'
+              ? 'Orders will appear when customers reserve your listings'
+              : `No ${filter.replace('_', ' ')} orders`}
+          </p>
+        </Card>
       ) : (
         <div className="space-y-3">
           {filteredOrders.map((order) => {
             const status = statusConfig[order.status] ?? statusConfig.reserved
             const isActive = order.status === 'reserved' || order.status === 'confirmed'
+            const hasError = verifyError[order.id]
 
             return (
-              <Card key={order.id} className="p-4">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h3 className="font-semibold text-sm">
-                      {order.listing?.title ?? 'Order'}
-                    </h3>
-                    <p className="text-xs text-dark-green/50 mt-0.5">
-                      Qty: {order.quantity} · {formatPrice(order.total_price)}
-                    </p>
+              <Card key={order.id} className={`overflow-hidden ${isActive ? 'border-gold/20' : ''}`}>
+                {/* Order Header */}
+                <div className="p-4 pb-3">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                        order.status === 'picked_up' ? 'bg-success/10' :
+                        order.status === 'reserved' ? 'bg-gold/10' :
+                        order.status === 'cancelled' || order.status === 'no_show' ? 'bg-error/10' :
+                        'bg-olive/10'
+                      }`}>
+                        <span className="text-lg">{status.icon}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-sm truncate">
+                          {order.listing?.title ?? 'Order'}
+                        </h3>
+                        <p className="text-xs text-dark-green/45 mt-0.5">
+                          {order.quantity} {order.quantity === 1 ? 'bag' : 'bags'} · {formatPrice(order.total_price)}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant={status.variant}>{status.label}</Badge>
                   </div>
-                  <Badge variant={status.variant}>{status.label}</Badge>
+
+                  {/* Order Details */}
+                  <div className="flex items-center gap-4 text-[11px] text-dark-green/35 ml-13">
+                    {order.listing && (
+                      <span>🕐 {formatPickupWindow(order.listing.pickup_start, order.listing.pickup_end)}</span>
+                    )}
+                    <span>
+                      📅 {new Date(order.reserved_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+
+                  {order.status === 'picked_up' && order.picked_up_at && (
+                    <p className="text-[11px] text-success/70 mt-1.5 ml-13">
+                      Picked up {new Date(order.picked_up_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  )}
                 </div>
 
-                {order.listing && (
-                  <p className="text-xs text-dark-green/40 mb-2">
-                    Pickup: {formatPickupWindow(order.listing.pickup_start, order.listing.pickup_end)}
-                  </p>
-                )}
-
-                <p className="text-[10px] text-dark-green/30 mb-2">
-                  Reserved: {new Date(order.reserved_at).toLocaleString('en-PH')}
-                </p>
-
+                {/* Pickup Verification Section */}
                 {isActive && (
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-dark-green/5">
-                    <input
-                      placeholder="Enter pickup code"
-                      value={verifyCode[order.id] ?? ''}
-                      onChange={(e) => setVerifyCode({ ...verifyCode, [order.id]: e.target.value })}
-                      className="flex-1 px-3 py-2 rounded-lg border border-dark-green/15 text-sm"
-                      maxLength={4}
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => markPickedUp(order)}
-                      disabled={!verifyCode[order.id]}
+                  <div className="bg-cream/50 border-t border-dark-green/5 px-4 py-3">
+                    <p className="text-xs font-medium text-dark-green/60 mb-2.5">
+                      Verify Pickup Code
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          placeholder="Enter 4-digit code"
+                          value={verifyCode[order.id] ?? ''}
+                          onChange={(e) => {
+                            setVerifyCode({ ...verifyCode, [order.id]: e.target.value.toUpperCase() })
+                            setVerifyError({ ...verifyError, [order.id]: false })
+                          }}
+                          className={`w-full px-3 py-2.5 rounded-xl border text-sm font-mono tracking-widest text-center transition-colors ${
+                            hasError
+                              ? 'border-error bg-error/5 text-error'
+                              : 'border-dark-green/15 bg-white'
+                          }`}
+                          maxLength={4}
+                        />
+                        {hasError && (
+                          <p className="text-[10px] text-error mt-1 text-center">Wrong code. Try again.</p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => markPickedUp(order)}
+                        disabled={!verifyCode[order.id] || verifying[order.id]}
+                        className="whitespace-nowrap"
+                      >
+                        {verifying[order.id] ? '...' : 'Confirm'}
+                      </Button>
+                    </div>
+                    <button
+                      onClick={() => markNoShow(order)}
+                      disabled={markingNoShow[order.id]}
+                      className="mt-2 text-[11px] text-dark-green/35 hover:text-error transition-colors w-full text-center"
                     >
-                      Verify & Complete
-                    </Button>
+                      {markingNoShow[order.id] ? 'Marking...' : 'Mark as no-show'}
+                    </button>
                   </div>
                 )}
               </Card>

@@ -107,11 +107,14 @@ export default function ManageListingsPage() {
     setPickupEnd('19:00')
   }
 
+  const activeListings = listings.filter(l => l.is_active)
+  const inactiveListings = listings.filter(l => !l.is_active)
+
   if (loading) {
     return (
       <div className="space-y-3">
         {[...Array(3)].map((_, i) => (
-          <div key={i} className="h-24 bg-white rounded-2xl animate-pulse" />
+          <div key={i} className="h-32 bg-white rounded-2xl animate-pulse" />
         ))}
       </div>
     )
@@ -119,123 +122,220 @@ export default function ManageListingsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-display text-xl font-bold">Listings</h2>
-        <Button size="sm" onClick={() => setShowForm(true)}>+ Add Listing</Button>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="font-display text-xl font-bold">Listings</h2>
+          <p className="text-xs text-dark-green/45 mt-0.5">
+            {listings.length} total · {activeListings.length} active
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowForm(true)}>
+          + New Listing
+        </Button>
       </div>
 
       {listings.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-4xl mb-2">📦</p>
-          <p className="font-semibold">No listings yet</p>
-          <p className="text-sm text-dark-green/50 mt-1">Add your first surprise bag</p>
-        </div>
+        <Card className="p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-olive/10 flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">📦</span>
+          </div>
+          <p className="font-display font-semibold text-lg">No listings yet</p>
+          <p className="text-sm text-dark-green/50 mt-1 mb-4">
+            Create your first surprise bag to start saving food
+          </p>
+          <Button onClick={() => setShowForm(true)}>
+            Create First Listing
+          </Button>
+        </Card>
       ) : (
         <div className="space-y-3">
-          {listings.map((listing) => (
-            <Card key={listing.id} className="p-4">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-sm">{listing.title}</h3>
-                    {!listing.is_active && <Badge variant="error">Inactive</Badge>}
-                  </div>
-                  <p className="text-xs text-dark-green/50 mt-0.5">{listing.description}</p>
-                  <div className="flex items-baseline gap-2 mt-1.5">
-                    <span className="font-bold text-gold">{formatPrice(listing.discounted_price)}</span>
-                    <span className="text-xs text-dark-green/40 line-through">{formatPrice(listing.original_price)}</span>
-                    <Badge variant="gold" className="text-[10px]">
-                      {calcDiscountPercent(listing.original_price, listing.discounted_price)}% OFF
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1.5 text-xs text-dark-green/50">
-                    <span>{formatPickupWindow(listing.pickup_start, listing.pickup_end)}</span>
-                    <span>{listing.quantity_sold}/{listing.quantity_available} sold</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => toggleActive(listing)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium ${
-                    listing.is_active
-                      ? 'bg-error/10 text-error'
-                      : 'bg-success/10 text-success'
-                  }`}
-                >
-                  {listing.is_active ? 'Deactivate' : 'Activate'}
-                </button>
-              </div>
-            </Card>
-          ))}
+          {/* Active Listings */}
+          {activeListings.length > 0 && (
+            <>
+              <p className="text-xs font-semibold text-dark-green/40 uppercase tracking-wider">
+                Active ({activeListings.length})
+              </p>
+              {activeListings.map((listing) => (
+                <ListingCard key={listing.id} listing={listing} onToggle={toggleActive} />
+              ))}
+            </>
+          )}
+
+          {/* Inactive Listings */}
+          {inactiveListings.length > 0 && (
+            <>
+              <p className="text-xs font-semibold text-dark-green/40 uppercase tracking-wider mt-6">
+                Inactive ({inactiveListings.length})
+              </p>
+              {inactiveListings.map((listing) => (
+                <ListingCard key={listing.id} listing={listing} onToggle={toggleActive} />
+              ))}
+            </>
+          )}
         </div>
       )}
 
       {/* Add Listing Modal */}
-      <Modal isOpen={showForm} onClose={() => { setShowForm(false); resetForm() }} title="Add Listing">
-        <div className="space-y-3">
-          <Input
-            label="Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Surprise Bread Bag"
-          />
+      <Modal isOpen={showForm} onClose={() => { setShowForm(false); resetForm() }} title="New Surprise Bag">
+        <div className="space-y-4">
+          <div>
+            <Input
+              label="What are you selling?"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Surprise Bread Bag"
+            />
+            <p className="text-[11px] text-dark-green/35 mt-1">Give it a catchy name customers will love</p>
+          </div>
           <Input
             label="Description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Assorted breads and pastries"
+            placeholder="e.g. Assorted breads and pastries from today"
           />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Original Price (₱)"
-              type="number"
-              value={originalPrice}
-              onChange={(e) => setOriginalPrice(e.target.value)}
-              placeholder="150"
-            />
-            <Input
-              label="Sale Price (₱)"
-              type="number"
-              value={discountedPrice}
-              onChange={(e) => setDiscountedPrice(e.target.value)}
-              placeholder="59"
-            />
+
+          <div className="bg-cream rounded-xl p-4">
+            <p className="text-xs font-semibold text-dark-green/60 mb-3">Pricing</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Original Price"
+                type="number"
+                value={originalPrice}
+                onChange={(e) => setOriginalPrice(e.target.value)}
+                placeholder="150"
+              />
+              <Input
+                label="Your Price"
+                type="number"
+                value={discountedPrice}
+                onChange={(e) => setDiscountedPrice(e.target.value)}
+                placeholder="59"
+              />
+            </div>
+            {originalPrice && discountedPrice && parseFloat(originalPrice) > 0 && (
+              <div className="mt-3 flex items-center gap-2">
+                <Badge variant="gold">
+                  {calcDiscountPercent(parseFloat(originalPrice), parseFloat(discountedPrice))}% OFF
+                </Badge>
+                <span className="text-xs text-dark-green/45">
+                  Customers save {formatPrice(parseFloat(originalPrice) - parseFloat(discountedPrice))} per bag
+                </span>
+              </div>
+            )}
           </div>
-          {originalPrice && discountedPrice && (
-            <p className="text-sm text-gold font-medium">
-              {calcDiscountPercent(parseFloat(originalPrice), parseFloat(discountedPrice))}% discount
-            </p>
-          )}
+
           <Input
-            label="Quantity Available"
+            label="How many bags available?"
             type="number"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             placeholder="5"
           />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Pickup Start"
-              type="time"
-              value={pickupStart}
-              onChange={(e) => setPickupStart(e.target.value)}
-            />
-            <Input
-              label="Pickup End"
-              type="time"
-              value={pickupEnd}
-              onChange={(e) => setPickupEnd(e.target.value)}
-            />
+
+          <div className="bg-cream rounded-xl p-4">
+            <p className="text-xs font-semibold text-dark-green/60 mb-3">Pickup Window</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="From"
+                type="time"
+                value={pickupStart}
+                onChange={(e) => setPickupStart(e.target.value)}
+              />
+              <Input
+                label="Until"
+                type="time"
+                value={pickupEnd}
+                onChange={(e) => setPickupEnd(e.target.value)}
+              />
+            </div>
           </div>
+
           <Button
             onClick={handleCreate}
             disabled={saving || !title || !originalPrice || !discountedPrice}
             className="w-full"
             size="lg"
           >
-            {saving ? 'Creating...' : 'Create Listing'}
+            {saving ? 'Creating...' : 'Publish Listing'}
           </Button>
         </div>
       </Modal>
     </div>
+  )
+}
+
+function ListingCard({ listing, onToggle }: { listing: Listing; onToggle: (l: Listing) => void }) {
+  const remaining = listing.quantity_available - listing.quantity_sold
+  const soldPercent = listing.quantity_available > 0
+    ? Math.round((listing.quantity_sold / listing.quantity_available) * 100)
+    : 0
+
+  return (
+    <Card className={`p-4 ${!listing.is_active ? 'opacity-60' : ''}`}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <h3 className="font-display font-semibold text-base truncate">{listing.title}</h3>
+          </div>
+          {listing.description && (
+            <p className="text-xs text-dark-green/45 truncate">{listing.description}</p>
+          )}
+        </div>
+        <button
+          onClick={() => onToggle(listing)}
+          className="relative ml-3 flex-shrink-0"
+          title={listing.is_active ? 'Deactivate' : 'Activate'}
+        >
+          <div className={`w-11 h-6 rounded-full transition-colors ${
+            listing.is_active ? 'bg-success' : 'bg-dark-green/20'
+          }`}>
+            <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform absolute top-0.5 ${
+              listing.is_active ? 'translate-x-5.5 left-0' : 'left-0.5'
+            }`} style={{ transform: listing.is_active ? 'translateX(22px)' : 'translateX(0)' }} />
+          </div>
+        </button>
+      </div>
+
+      {/* Price Row */}
+      <div className="flex items-baseline gap-2 mb-3">
+        <span className="text-lg font-bold text-gold">{formatPrice(listing.discounted_price)}</span>
+        <span className="text-xs text-dark-green/35 line-through">{formatPrice(listing.original_price)}</span>
+        <Badge variant="gold" className="text-[10px]">
+          {calcDiscountPercent(listing.original_price, listing.discounted_price)}% OFF
+        </Badge>
+      </div>
+
+      {/* Inventory Bar */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between text-xs mb-1.5">
+          <span className="text-dark-green/50">
+            {listing.quantity_sold} sold of {listing.quantity_available}
+          </span>
+          <span className={`font-semibold ${remaining <= 2 ? 'text-error' : 'text-dark-green/60'}`}>
+            {remaining} left
+          </span>
+        </div>
+        <div className="h-2 bg-dark-green/8 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${
+              soldPercent >= 80 ? 'bg-success' : soldPercent >= 50 ? 'bg-gold' : 'bg-olive/50'
+            }`}
+            style={{ width: `${soldPercent}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Pickup Info */}
+      <div className="flex items-center gap-4 text-xs text-dark-green/45">
+        <span className="flex items-center gap-1">
+          🕐 {formatPickupWindow(listing.pickup_start, listing.pickup_end)}
+        </span>
+        {listing.available_date && (
+          <span className="flex items-center gap-1">
+            📅 {new Date(listing.available_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+      </div>
+    </Card>
   )
 }
