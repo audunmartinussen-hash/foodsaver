@@ -1,65 +1,231 @@
-import Image from "next/image";
+'use client'
 
-export default function Home() {
+import { useState } from 'react'
+import ListingCard from '@/components/ListingCard'
+import InstallPrompt from '@/components/InstallPrompt'
+import Modal from '@/components/ui/Modal'
+import Button from '@/components/ui/Button'
+import Badge from '@/components/ui/Badge'
+import { useListings } from '@/hooks/useListings'
+import { useAuth } from '@/hooks/useAuth'
+import { createClient } from '@/lib/supabase/client'
+import { formatPrice, calcDiscountPercent, formatPickupWindow, generatePickupCode } from '@/lib/utils'
+import type { Listing } from '@/lib/types'
+
+export default function HomePage() {
+  const [city, setCity] = useState('Cagayan de Oro')
+  const { listings, loading } = useListings(city)
+  const { user } = useAuth()
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null)
+  const [quantity, setQuantity] = useState(1)
+  const [reserving, setReserving] = useState(false)
+  const [confirmation, setConfirmation] = useState<{ code: string; listing: Listing } | null>(null)
+
+  const handleReserve = async () => {
+    if (!user || !selectedListing) return
+    setReserving(true)
+
+    const supabase = createClient()
+    const code = generatePickupCode()
+
+    const { error } = await supabase.from('orders').insert({
+      listing_id: selectedListing.id,
+      consumer_id: user.id,
+      store_id: selectedListing.store_id,
+      quantity,
+      total_price: selectedListing.discounted_price * quantity,
+      pickup_code: code,
+    })
+
+    if (!error) {
+      await supabase
+        .from('listings')
+        .update({ quantity_sold: selectedListing.quantity_sold + quantity })
+        .eq('id', selectedListing.id)
+
+      setConfirmation({ code, listing: selectedListing })
+      setSelectedListing(null)
+    }
+
+    setReserving(false)
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="px-4 pt-4 pb-8">
+      {/* Header */}
+      <div className="mb-5">
+        <h1 className="font-display text-2xl font-bold text-dark-green">
+          FoodSaver
+        </h1>
+        <p className="text-sm text-dark-green/60 mt-0.5">
+          Save big on surplus food near you
+        </p>
+      </div>
+
+      {/* City Filter */}
+      <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+        {['Cagayan de Oro', 'Manila', 'Cebu', 'Davao'].map((c) => (
+          <button
+            key={c}
+            onClick={() => setCity(c)}
+            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+              city === c
+                ? 'bg-dark-green text-white'
+                : 'bg-white text-dark-green/60 border border-dark-green/10'
+            }`}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+
+      {/* Listings Grid */}
+      {loading ? (
+        <div className="grid grid-cols-2 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-white rounded-2xl h-56 animate-pulse" />
+          ))}
+        </div>
+      ) : listings.length === 0 ? (
+        <div className="text-center py-16">
+          <p className="text-5xl mb-3">🍽</p>
+          <p className="font-display font-semibold text-dark-green">No listings yet</p>
+          <p className="text-sm text-dark-green/50 mt-1">
+            Check back soon for deals in {city}
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {listings.map((listing) => (
+            <ListingCard
+              key={listing.id}
+              listing={listing}
+              onClick={() => {
+                if (!user) {
+                  window.location.href = '/login'
+                  return
+                }
+                setSelectedListing(listing)
+                setQuantity(1)
+              }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          ))}
         </div>
-      </main>
+      )}
+
+      {/* Reserve Modal */}
+      <Modal
+        isOpen={!!selectedListing}
+        onClose={() => setSelectedListing(null)}
+        title="Reserve"
+      >
+        {selectedListing && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="font-display font-semibold text-lg">{selectedListing.title}</h3>
+              {selectedListing.store && (
+                <p className="text-sm text-dark-green/50">{selectedListing.store.name}</p>
+              )}
+              {selectedListing.description && (
+                <p className="text-sm text-dark-green/60 mt-1">{selectedListing.description}</p>
+              )}
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-gold">
+                {formatPrice(selectedListing.discounted_price)}
+              </span>
+              <span className="text-sm text-dark-green/40 line-through">
+                {formatPrice(selectedListing.original_price)}
+              </span>
+              <Badge variant="gold">
+                {calcDiscountPercent(selectedListing.original_price, selectedListing.discounted_price)}% OFF
+              </Badge>
+            </div>
+
+            <div className="bg-cream rounded-xl p-3 text-sm">
+              <p className="text-dark-green/60">
+                Pickup: {formatPickupWindow(selectedListing.pickup_start, selectedListing.pickup_end)}
+              </p>
+              {selectedListing.store && (
+                <p className="text-dark-green/60 mt-1">{selectedListing.store.address}</p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Quantity</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  className="w-8 h-8 rounded-full bg-dark-green/5 flex items-center justify-center"
+                >
+                  -
+                </button>
+                <span className="font-semibold w-4 text-center">{quantity}</span>
+                <button
+                  onClick={() =>
+                    setQuantity(
+                      Math.min(selectedListing.quantity_available - selectedListing.quantity_sold, quantity + 1)
+                    )
+                  }
+                  className="w-8 h-8 rounded-full bg-dark-green/5 flex items-center justify-center"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-dark-green/10 pt-3 flex items-center justify-between">
+              <span className="font-medium">Total</span>
+              <span className="text-xl font-bold text-gold">
+                {formatPrice(selectedListing.discounted_price * quantity)}
+              </span>
+            </div>
+
+            <Button
+              onClick={handleReserve}
+              disabled={reserving}
+              className="w-full"
+              size="lg"
+            >
+              {reserving ? 'Reserving...' : 'Reserve Now — Pay at Pickup'}
+            </Button>
+          </div>
+        )}
+      </Modal>
+
+      {/* Confirmation Modal */}
+      <Modal
+        isOpen={!!confirmation}
+        onClose={() => setConfirmation(null)}
+        title="Reserved!"
+      >
+        {confirmation && (
+          <div className="text-center space-y-4">
+            <p className="text-5xl">🎉</p>
+            <p className="text-sm text-dark-green/60">
+              Show this code when you pick up your order
+            </p>
+            <div className="bg-cream rounded-2xl p-6">
+              <p className="text-xs text-dark-green/40 mb-1">Pickup Code</p>
+              <p className="font-display text-5xl font-bold text-dark-green tracking-[0.3em]">
+                {confirmation.code}
+              </p>
+            </div>
+            <div className="text-left bg-olive/5 rounded-xl p-3 text-sm space-y-1">
+              <p className="font-medium">{confirmation.listing.title}</p>
+              <p className="text-dark-green/50">
+                Pickup: {formatPickupWindow(confirmation.listing.pickup_start, confirmation.listing.pickup_end)}
+              </p>
+            </div>
+            <Button onClick={() => setConfirmation(null)} className="w-full" size="lg">
+              Done
+            </Button>
+          </div>
+        )}
+      </Modal>
+
+      <InstallPrompt />
     </div>
-  );
+  )
 }
