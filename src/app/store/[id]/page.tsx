@@ -8,7 +8,7 @@ import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
 import { useAuth } from '@/hooks/useAuth'
-import { formatPrice, calcDiscountPercent, formatPickupWindow, generatePickupCode } from '@/lib/utils'
+import { formatPrice, calcDiscountPercent, calcPlatformFee, formatPickupWindow, generatePickupCode } from '@/lib/utils'
 import type { Store, Listing } from '@/lib/types'
 
 export default function StorePage() {
@@ -20,6 +20,7 @@ export default function StorePage() {
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null)
   const [quantity, setQuantity] = useState(1)
   const [reserving, setReserving] = useState(false)
+  const [reserveError, setReserveError] = useState<string | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -48,27 +49,64 @@ export default function StorePage() {
   const handleReserve = async () => {
     if (!user || !selectedListing || !store) return
     setReserving(true)
+    setReserveError(null)
 
     const code = generatePickupCode()
-    const { error } = await supabase.from('orders').insert({
+    const platformFee = calcPlatformFee(selectedListing.discounted_price, quantity)
+    const totalPrice = selectedListing.discounted_price * quantity
+
+    // 1. Create order with pending payment
+    const { data: order, error } = await supabase.from('orders').insert({
       listing_id: selectedListing.id,
       consumer_id: user.id,
       store_id: store.id,
       quantity,
-      total_price: selectedListing.discounted_price * quantity,
+      total_price: totalPrice,
       pickup_code: code,
-    })
+      payment_method: null,
+      platform_fee: platformFee,
+      payment_status: 'pending',
+    }).select().single()
 
-    if (!error) {
-      await supabase
-        .from('listings')
-        .update({ quantity_sold: selectedListing.quantity_sold + quantity })
-        .eq('id', selectedListing.id)
-      alert(`Reserved! Your pickup code is: ${code}`)
-      setSelectedListing(null)
+    if (error || !order) {
+      setReserveError('Failed to create order. Please try again.')
+      setReserving(false)
+      return
     }
 
-    setReserving(false)
+    // 2. Update listing quantity
+    await supabase
+      .from('listings')
+      .update({ quantity_sold: selectedListing.quantity_sold + quantity })
+      .eq('id', selectedListing.id)
+
+    // 3. Create PayMongo checkout session
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.id,
+          listingTitle: selectedListing.title,
+          amount: totalPrice,
+          quantity,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.checkoutUrl) {
+        setReserveError('Failed to start payment. Please try again from your orders.')
+        setReserving(false)
+        return
+      }
+
+      // 4. Redirect to PayMongo checkout
+      window.location.href = data.checkoutUrl
+    } catch {
+      setReserveError('Failed to connect to payment gateway. Please try again.')
+      setReserving(false)
+    }
   }
 
   if (loading) {
@@ -206,9 +244,19 @@ export default function StorePage() {
               </span>
             </div>
 
+            {reserveError && (
+              <div className="bg-error/10 text-error text-sm rounded-xl p-3 text-center">
+                {reserveError}
+              </div>
+            )}
+
             <Button onClick={handleReserve} disabled={reserving} className="w-full" size="lg">
-              {reserving ? 'Reserving...' : 'Reserve Now — Pay at Pickup'}
+              {reserving ? 'Processing...' : 'Reserve & Pay Online'}
             </Button>
+
+            <p className="text-xs text-dark-green/40 text-center">
+              You&apos;ll be redirected to complete payment via GCash, Maya, or card
+            </p>
           </div>
         )}
       </Modal>

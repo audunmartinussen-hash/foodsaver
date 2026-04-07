@@ -33,7 +33,18 @@ export default function OrderCard({ order, showPickupCode = false }: OrderCardPr
             <p className="text-xs text-dark-green/50 mt-0.5">{order.store.name}</p>
           )}
         </div>
-        <Badge variant={status.variant}>{status.label}</Badge>
+        <div className="flex flex-col items-end gap-1">
+          <Badge variant={status.variant}>{status.label}</Badge>
+          {order.payment_status === 'paid' && (
+            <span className="text-[10px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full">Paid</span>
+          )}
+          {order.payment_status === 'pending' && (
+            <span className="text-[10px] font-semibold text-gold bg-gold/10 px-2 py-0.5 rounded-full">Payment pending</span>
+          )}
+          {order.payment_status === 'failed' && (
+            <span className="text-[10px] font-semibold text-error bg-error/10 px-2 py-0.5 rounded-full">Payment failed</span>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center justify-between text-sm mb-3">

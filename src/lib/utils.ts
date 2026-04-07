@@ -1,3 +1,23 @@
+export const PRICING = {
+  MIN_DISCOUNT: 40,
+  MAX_DISCOUNT: 70,
+  DISCOUNT_TIERS: [40, 50, 60, 70],
+  PLATFORM_FEE_PERCENT: 20,
+  PAYMENT_METHODS: ['cash', 'gcash'] as const,
+}
+
+export function calcDiscountedPrice(originalPrice: number, discountPercent: number): number {
+  return Math.round(originalPrice * (1 - discountPercent / 100))
+}
+
+export function calcPlatformFee(discountedPrice: number, quantity: number): number {
+  return Math.round(discountedPrice * quantity * PRICING.PLATFORM_FEE_PERCENT / 100)
+}
+
+export function calcStorePayout(discountedPrice: number, quantity: number): number {
+  return discountedPrice * quantity - calcPlatformFee(discountedPrice, quantity)
+}
+
 export function formatPrice(amount: number): string {
   return `₱${amount.toFixed(2)}`
 }

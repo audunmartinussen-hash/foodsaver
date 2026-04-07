@@ -13,7 +13,7 @@ import type { Store, Order } from '@/lib/types'
 export default function DashboardPage() {
   const { user } = useAuth()
   const [store, setStore] = useState<Store | null>(null)
-  const [stats, setStats] = useState({ listings: 0, reservations: 0, pickups: 0, revenue: 0 })
+  const [stats, setStats] = useState({ listings: 0, reservations: 0, pickups: 0, revenue: 0, platformFees: 0, netEarnings: 0 })
   const [recentOrders, setRecentOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [showStoreForm, setShowStoreForm] = useState(false)
@@ -60,17 +60,20 @@ export default function DashboardPage() {
         // Get total revenue from picked_up orders
         const { data: revenueData } = await supabase
           .from('orders')
-          .select('total_price')
+          .select('total_price, platform_fee')
           .eq('store_id', storeData.id)
           .eq('status', 'picked_up')
 
         const totalRevenue = revenueData?.reduce((sum, o) => sum + (o.total_price || 0), 0) ?? 0
+        const totalPlatformFees = revenueData?.reduce((sum, o) => sum + (o.platform_fee || 0), 0) ?? 0
 
         setStats({
           listings: listingCount ?? 0,
           reservations: reservationCount ?? 0,
           pickups: pickupCount ?? 0,
           revenue: totalRevenue,
+          platformFees: totalPlatformFees,
+          netEarnings: totalRevenue - totalPlatformFees,
         })
 
         // Get recent orders
@@ -249,8 +252,8 @@ export default function DashboardPage() {
         <Card className="p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs text-dark-green/45 font-medium">Total Revenue</p>
-              <p className="text-2xl font-bold text-dark-green mt-1">{formatPrice(stats.revenue)}</p>
+              <p className="text-xs text-dark-green/45 font-medium">Net Earnings</p>
+              <p className="text-2xl font-bold text-dark-green mt-1">{formatPrice(stats.netEarnings)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-dark-green/8 flex items-center justify-center">
               <span className="text-lg">💰</span>
@@ -258,6 +261,29 @@ export default function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {/* Revenue Breakdown */}
+      {stats.revenue > 0 && (
+        <div className="mb-6">
+          <h3 className="font-semibold text-xs text-dark-green/45 uppercase tracking-wider mb-3">
+            Revenue Breakdown
+          </h3>
+          <Card className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-dark-green/60">Total Sales</span>
+              <span className="text-sm font-semibold">{formatPrice(stats.revenue)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-dark-green/60">FoodSaver Fee (15%)</span>
+              <span className="text-sm font-semibold text-error">-{formatPrice(stats.platformFees)}</span>
+            </div>
+            <div className="border-t border-dark-green/10 pt-2 flex items-center justify-between">
+              <span className="text-sm font-semibold text-dark-green">Your Earnings</span>
+              <span className="text-lg font-bold text-gold">{formatPrice(stats.netEarnings)}</span>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Quick Actions */}
       <h3 className="font-semibold text-xs text-dark-green/45 uppercase tracking-wider mb-3">

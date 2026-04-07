@@ -205,7 +205,18 @@ export default function StoreOrdersPage() {
                         </p>
                       </div>
                     </div>
-                    <Badge variant={status.variant}>{status.label}</Badge>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge variant={status.variant}>{status.label}</Badge>
+                      {order.payment_status === 'paid' && (
+                        <span className="text-[10px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full">Paid</span>
+                      )}
+                      {order.payment_status === 'pending' && (
+                        <span className="text-[10px] font-semibold text-gold bg-gold/10 px-2 py-0.5 rounded-full">Unpaid</span>
+                      )}
+                      {order.payment_status === 'failed' && (
+                        <span className="text-[10px] font-semibold text-error bg-error/10 px-2 py-0.5 rounded-full">Failed</span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Order Details */}
@@ -225,8 +236,17 @@ export default function StoreOrdersPage() {
                   )}
                 </div>
 
-                {/* Pickup Verification Section */}
-                {isActive && (
+                {/* Unpaid warning for active orders */}
+                {isActive && order.payment_status !== 'paid' && (
+                  <div className="bg-gold/5 border-t border-gold/10 px-4 py-3">
+                    <p className="text-xs text-gold font-medium text-center">
+                      Awaiting payment — do not hand over items until payment is confirmed
+                    </p>
+                  </div>
+                )}
+
+                {/* Pickup Verification Section — only for paid orders */}
+                {isActive && order.payment_status === 'paid' && (
                   <div className="bg-cream/50 border-t border-dark-green/5 px-4 py-3">
                     <p className="text-xs font-medium text-dark-green/60 mb-2.5">
                       Verify Pickup Code

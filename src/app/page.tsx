@@ -10,7 +10,7 @@ import Badge from '@/components/ui/Badge'
 import { useListings } from '@/hooks/useListings'
 import { useAuth } from '@/hooks/useAuth'
 import { createClient } from '@/lib/supabase/client'
-import { formatPrice, calcDiscountPercent, formatPickupWindow, generatePickupCode } from '@/lib/utils'
+import { formatPrice, calcDiscountPercent, calcPlatformFee, formatPickupWindow, generatePickupCode } from '@/lib/utils'
 import type { Listing } from '@/lib/types'
 
 function LandingPage() {
@@ -233,35 +233,70 @@ function ListingsFeed() {
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null)
   const [quantity, setQuantity] = useState(1)
   const [reserving, setReserving] = useState(false)
-  const [confirmation, setConfirmation] = useState<{ code: string; listing: Listing } | null>(null)
+  const [reserveError, setReserveError] = useState<string | null>(null)
 
   const handleReserve = async () => {
     if (!user || !selectedListing) return
     setReserving(true)
+    setReserveError(null)
 
     const supabase = createClient()
     const code = generatePickupCode()
+    const platformFee = calcPlatformFee(selectedListing.discounted_price, quantity)
+    const totalPrice = selectedListing.discounted_price * quantity
 
-    const { error } = await supabase.from('orders').insert({
+    // 1. Create order with pending payment
+    const { data: order, error } = await supabase.from('orders').insert({
       listing_id: selectedListing.id,
       consumer_id: user.id,
       store_id: selectedListing.store_id,
       quantity,
-      total_price: selectedListing.discounted_price * quantity,
+      total_price: totalPrice,
       pickup_code: code,
-    })
+      payment_method: null,
+      platform_fee: platformFee,
+      payment_status: 'pending',
+    }).select().single()
 
-    if (!error) {
-      await supabase
-        .from('listings')
-        .update({ quantity_sold: selectedListing.quantity_sold + quantity })
-        .eq('id', selectedListing.id)
-
-      setConfirmation({ code, listing: selectedListing })
-      setSelectedListing(null)
+    if (error || !order) {
+      setReserveError('Failed to create order. Please try again.')
+      setReserving(false)
+      return
     }
 
-    setReserving(false)
+    // 2. Update listing quantity
+    await supabase
+      .from('listings')
+      .update({ quantity_sold: selectedListing.quantity_sold + quantity })
+      .eq('id', selectedListing.id)
+
+    // 3. Create PayMongo checkout session
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.id,
+          listingTitle: selectedListing.title,
+          amount: totalPrice,
+          quantity,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.checkoutUrl) {
+        setReserveError('Failed to start payment. Please try again from your orders.')
+        setReserving(false)
+        return
+      }
+
+      // 4. Redirect to PayMongo checkout
+      window.location.href = data.checkoutUrl
+    } catch {
+      setReserveError('Failed to connect to payment gateway. Please try again.')
+      setReserving(false)
+    }
   }
 
   return (
@@ -388,48 +423,29 @@ function ListingsFeed() {
               </span>
             </div>
 
+            {reserveError && (
+              <div className="bg-error/10 text-error text-sm rounded-xl p-3 text-center">
+                {reserveError}
+              </div>
+            )}
+
             <Button
               onClick={handleReserve}
               disabled={reserving}
               className="w-full"
               size="lg"
             >
-              {reserving ? 'Reserving...' : 'Reserve Now — Pay at Pickup'}
+              {reserving ? 'Processing...' : 'Reserve & Pay Online'}
             </Button>
+
+            <p className="text-xs text-dark-green/40 text-center">
+              You&apos;ll be redirected to complete payment via GCash, Maya, or card
+            </p>
           </div>
         )}
       </Modal>
 
-      {/* Confirmation Modal */}
-      <Modal
-        isOpen={!!confirmation}
-        onClose={() => setConfirmation(null)}
-        title="Reserved!"
-      >
-        {confirmation && (
-          <div className="text-center space-y-4">
-            <p className="text-5xl">🎉</p>
-            <p className="text-sm text-dark-green/60">
-              Show this code when you pick up your order
-            </p>
-            <div className="bg-cream rounded-2xl p-6">
-              <p className="text-xs text-dark-green/40 mb-1">Pickup Code</p>
-              <p className="font-display text-5xl font-bold text-dark-green tracking-[0.3em]">
-                {confirmation.code}
-              </p>
-            </div>
-            <div className="text-left bg-olive/5 rounded-xl p-3 text-sm space-y-1">
-              <p className="font-medium">{confirmation.listing.title}</p>
-              <p className="text-dark-green/50">
-                Pickup: {formatPickupWindow(confirmation.listing.pickup_start, confirmation.listing.pickup_end)}
-              </p>
-            </div>
-            <Button onClick={() => setConfirmation(null)} className="w-full" size="lg">
-              Done
-            </Button>
-          </div>
-        )}
-      </Modal>
+      {/* Confirmation modal removed — user is redirected to PayMongo checkout */}
 
       <InstallPrompt />
     </div>

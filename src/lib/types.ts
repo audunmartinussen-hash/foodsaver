@@ -52,6 +52,10 @@ export interface Order {
   total_price: number
   status: 'reserved' | 'confirmed' | 'picked_up' | 'cancelled' | 'no_show'
   pickup_code: string | null
+  payment_method: 'cash' | 'gcash' | null
+  platform_fee: number
+  payment_status: 'pending' | 'paid' | 'failed'
+  payment_id: string | null
   reserved_at: string
   picked_up_at: string | null
   cancelled_at: string | null

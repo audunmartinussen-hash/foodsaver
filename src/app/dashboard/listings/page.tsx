@@ -8,7 +8,7 @@ import Button from '@/components/ui/Button'
 import Badge from '@/components/ui/Badge'
 import Modal from '@/components/ui/Modal'
 import Input from '@/components/ui/Input'
-import { formatPrice, calcDiscountPercent, formatPickupWindow } from '@/lib/utils'
+import { formatPrice, calcDiscountPercent, calcDiscountedPrice, calcPlatformFee, calcStorePayout, formatPickupWindow, PRICING } from '@/lib/utils'
 import type { Listing, Store } from '@/lib/types'
 
 export default function ManageListingsPage() {
@@ -24,10 +24,15 @@ export default function ManageListingsPage() {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [originalPrice, setOriginalPrice] = useState('')
-  const [discountedPrice, setDiscountedPrice] = useState('')
+  const [discountTier, setDiscountTier] = useState(50)
   const [quantity, setQuantity] = useState('5')
   const [pickupStart, setPickupStart] = useState('17:00')
   const [pickupEnd, setPickupEnd] = useState('19:00')
+
+  const parsedOriginal = parseFloat(originalPrice) || 0
+  const computedDiscountedPrice = calcDiscountedPrice(parsedOriginal, discountTier)
+  const computedPlatformFee = calcPlatformFee(computedDiscountedPrice, 1)
+  const computedStorePayout = calcStorePayout(computedDiscountedPrice, 1)
 
   useEffect(() => {
     if (!user) return
@@ -66,8 +71,8 @@ export default function ManageListingsPage() {
         store_id: store.id,
         title,
         description,
-        original_price: parseFloat(originalPrice),
-        discounted_price: parseFloat(discountedPrice),
+        original_price: parsedOriginal,
+        discounted_price: computedDiscountedPrice,
         quantity_available: parseInt(quantity),
         pickup_start: pickupStart,
         pickup_end: pickupEnd,
@@ -101,7 +106,7 @@ export default function ManageListingsPage() {
     setTitle('')
     setDescription('')
     setOriginalPrice('')
-    setDiscountedPrice('')
+    setDiscountTier(50)
     setQuantity('5')
     setPickupStart('17:00')
     setPickupEnd('19:00')
@@ -196,30 +201,47 @@ export default function ManageListingsPage() {
 
           <div className="bg-cream rounded-xl p-4">
             <p className="text-xs font-semibold text-dark-green/60 mb-3">Pricing</p>
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                label="Original Price"
-                type="number"
-                value={originalPrice}
-                onChange={(e) => setOriginalPrice(e.target.value)}
-                placeholder="150"
-              />
-              <Input
-                label="Your Price"
-                type="number"
-                value={discountedPrice}
-                onChange={(e) => setDiscountedPrice(e.target.value)}
-                placeholder="59"
-              />
+            <Input
+              label="Original Price (₱)"
+              type="number"
+              value={originalPrice}
+              onChange={(e) => setOriginalPrice(e.target.value)}
+              placeholder="150"
+            />
+
+            <p className="text-xs font-semibold text-dark-green/60 mt-4 mb-2">Discount Tier</p>
+            <div className="grid grid-cols-4 gap-2">
+              {PRICING.DISCOUNT_TIERS.map((tier) => (
+                <button
+                  key={tier}
+                  type="button"
+                  onClick={() => setDiscountTier(tier)}
+                  className={`py-2.5 rounded-xl text-sm font-bold transition-all border-2 ${
+                    discountTier === tier
+                      ? 'bg-gold text-dark-green border-gold shadow-md shadow-gold/25'
+                      : 'bg-white text-dark-green/60 border-dark-green/10 hover:border-gold/40'
+                  }`}
+                >
+                  {tier}%
+                </button>
+              ))}
             </div>
-            {originalPrice && discountedPrice && parseFloat(originalPrice) > 0 && (
-              <div className="mt-3 flex items-center gap-2">
-                <Badge variant="gold">
-                  {calcDiscountPercent(parseFloat(originalPrice), parseFloat(discountedPrice))}% OFF
-                </Badge>
-                <span className="text-xs text-dark-green/45">
-                  Customers save {formatPrice(parseFloat(originalPrice) - parseFloat(discountedPrice))} per bag
-                </span>
+
+            {parsedOriginal > 0 && (
+              <div className="mt-4 space-y-2">
+                <div className="bg-white rounded-xl p-3 text-center">
+                  <p className="text-[11px] text-dark-green/40 mb-0.5">Customers pay</p>
+                  <p className="text-2xl font-bold text-gold">{formatPrice(computedDiscountedPrice)}</p>
+                  <Badge variant="gold" className="mt-1">{discountTier}% OFF</Badge>
+                </div>
+                <div className="bg-white/60 rounded-lg px-3 py-2 flex items-center justify-between text-xs">
+                  <span className="text-dark-green/50">FoodSaver fee (15%)</span>
+                  <span className="font-semibold text-dark-green/70">{formatPrice(computedPlatformFee)}</span>
+                </div>
+                <div className="bg-white/60 rounded-lg px-3 py-2 flex items-center justify-between text-xs">
+                  <span className="text-dark-green/50">You receive</span>
+                  <span className="font-bold text-dark-green">{formatPrice(computedStorePayout)}</span>
+                </div>
               </div>
             )}
           </div>
@@ -252,7 +274,7 @@ export default function ManageListingsPage() {
 
           <Button
             onClick={handleCreate}
-            disabled={saving || !title || !originalPrice || !discountedPrice}
+            disabled={saving || !title || !originalPrice || parsedOriginal <= 0}
             className="w-full"
             size="lg"
           >
