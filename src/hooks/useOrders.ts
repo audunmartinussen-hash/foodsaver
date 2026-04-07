@@ -7,6 +7,7 @@ import type { Order } from '@/lib/types'
 export function useOrders(userId?: string) {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshKey, setRefreshKey] = useState(0)
   const supabase = createClient()
 
   useEffect(() => {
@@ -27,9 +28,11 @@ export function useOrders(userId?: string) {
     }
 
     fetchOrders()
-  }, [userId])
+  }, [userId, refreshKey])
 
-  return { orders, loading }
+  const refetch = () => setRefreshKey((k) => k + 1)
+
+  return { orders, loading, refetch }
 }
 
 export function useStoreOrders(storeId?: string) {

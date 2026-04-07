@@ -20,9 +20,22 @@ export interface Store {
   phone: string | null
   image_url: string | null
   category: 'bakery' | 'restaurant' | 'grocery' | 'cafe' | 'other'
+  avg_rating: number
+  review_count: number
   is_active: boolean
   is_approved: boolean
   created_at: string
+}
+
+export interface Review {
+  id: string
+  order_id: string
+  store_id: string
+  consumer_id: string
+  rating: number
+  comment: string | null
+  created_at: string
+  profile?: Profile
 }
 
 export interface Listing {
@@ -39,6 +52,8 @@ export interface Listing {
   available_date: string
   image_url: string | null
   is_active: boolean
+  is_recurring: boolean
+  recurring_days: string[]
   created_at: string
   store?: Store
 }
@@ -59,6 +74,8 @@ export interface Order {
   reserved_at: string
   picked_up_at: string | null
   cancelled_at: string | null
+  cancelled_reason: string | null
+  refund_status: string | null
   listing?: Listing
   store?: Store
 }

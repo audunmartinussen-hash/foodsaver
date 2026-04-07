@@ -24,6 +24,56 @@ self.addEventListener('activate', (event) => {
   self.clients.claim()
 })
 
+// Push notifications
+self.addEventListener('push', (event) => {
+  const defaultData = {
+    title: 'FoodSaver',
+    body: 'You have a new notification',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    url: '/',
+  }
+
+  let data = defaultData
+  if (event.data) {
+    try {
+      data = { ...defaultData, ...event.data.json() }
+    } catch {
+      data = { ...defaultData, body: event.data.text() }
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon,
+      badge: data.badge,
+      data: { url: data.url },
+      vibrate: [100, 50, 100],
+    })
+  )
+})
+
+// Notification click — open/focus the app
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = event.notification.data?.url || '/'
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      // Focus existing tab if open
+      for (const client of clients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.navigate(url)
+          return client.focus()
+        }
+      }
+      // Otherwise open a new window
+      return self.clients.openWindow(url)
+    })
+  )
+})
+
 // Fetch — network first for API, cache first for static
 self.addEventListener('fetch', (event) => {
   const { request } = event

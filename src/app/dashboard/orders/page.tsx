@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth'
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
+import Modal from '@/components/ui/Modal'
 import { formatPrice, formatPickupWindow } from '@/lib/utils'
 import type { Order, Store } from '@/lib/types'
 
@@ -35,6 +36,10 @@ export default function StoreOrdersPage() {
   const [verifyError, setVerifyError] = useState<Record<string, boolean>>({})
   const [verifying, setVerifying] = useState<Record<string, boolean>>({})
   const [markingNoShow, setMarkingNoShow] = useState<Record<string, boolean>>({})
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -105,6 +110,35 @@ export default function StoreOrdersPage() {
       ))
     }
     setMarkingNoShow({ ...markingNoShow, [order.id]: false })
+  }
+
+  const handleCancelOrder = async () => {
+    if (!cancelOrderId || !cancelReason.trim()) return
+
+    setCancelling(true)
+    setCancelError(null)
+
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancelled_reason: cancelReason.trim(),
+      })
+      .eq('id', cancelOrderId)
+
+    if (error) {
+      setCancelError('Failed to cancel order. Please try again.')
+      setCancelling(false)
+      return
+    }
+
+    setOrders(orders.map(o =>
+      o.id === cancelOrderId ? { ...o, status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_reason: cancelReason.trim() } : o
+    ))
+    setCancelOrderId(null)
+    setCancelReason('')
+    setCancelling(false)
   }
 
   const filteredOrders = filter === 'all'
@@ -242,6 +276,16 @@ export default function StoreOrdersPage() {
                     <p className="text-xs text-gold font-medium text-center">
                       Awaiting payment — do not hand over items until payment is confirmed
                     </p>
+                    <button
+                      onClick={() => {
+                        setCancelOrderId(order.id)
+                        setCancelReason('')
+                        setCancelError(null)
+                      }}
+                      className="mt-2 text-[11px] text-error/60 hover:text-error transition-colors w-full text-center"
+                    >
+                      Cancel Order
+                    </button>
                   </div>
                 )}
 
@@ -280,13 +324,25 @@ export default function StoreOrdersPage() {
                         {verifying[order.id] ? '...' : 'Confirm'}
                       </Button>
                     </div>
-                    <button
-                      onClick={() => markNoShow(order)}
-                      disabled={markingNoShow[order.id]}
-                      className="mt-2 text-[11px] text-dark-green/35 hover:text-error transition-colors w-full text-center"
-                    >
-                      {markingNoShow[order.id] ? 'Marking...' : 'Mark as no-show'}
-                    </button>
+                    <div className="flex items-center justify-between mt-2">
+                      <button
+                        onClick={() => markNoShow(order)}
+                        disabled={markingNoShow[order.id]}
+                        className="text-[11px] text-dark-green/35 hover:text-error transition-colors"
+                      >
+                        {markingNoShow[order.id] ? 'Marking...' : 'Mark as no-show'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setCancelOrderId(order.id)
+                          setCancelReason('')
+                          setCancelError(null)
+                        }}
+                        className="text-[11px] text-error/60 hover:text-error transition-colors"
+                      >
+                        Cancel Order
+                      </button>
+                    </div>
                   </div>
                 )}
               </Card>
@@ -294,6 +350,62 @@ export default function StoreOrdersPage() {
           })}
         </div>
       )}
+
+      {/* Cancel Order Modal */}
+      <Modal
+        isOpen={!!cancelOrderId}
+        onClose={() => {
+          setCancelOrderId(null)
+          setCancelReason('')
+          setCancelError(null)
+        }}
+        title="Cancel Order"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-dark-green/60">
+            Are you sure you want to cancel this order? This action cannot be undone.
+          </p>
+
+          <div>
+            <label className="text-sm font-medium text-dark-green block mb-1.5">
+              Reason for cancellation
+            </label>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Please provide a reason for cancellation..."
+              className="w-full px-3 py-2.5 rounded-xl border border-dark-green/15 bg-white text-sm resize-none focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              rows={3}
+            />
+          </div>
+
+          {cancelError && (
+            <div className="bg-error/10 text-error text-sm rounded-xl p-3 text-center">
+              {cancelError}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setCancelOrderId(null)
+                setCancelReason('')
+                setCancelError(null)
+              }}
+              className="flex-1 px-4 py-3 text-sm font-medium text-dark-green/60 bg-dark-green/5 rounded-xl hover:bg-dark-green/10 transition-colors"
+            >
+              Keep Order
+            </button>
+            <button
+              onClick={handleCancelOrder}
+              disabled={cancelling || !cancelReason.trim()}
+              className="flex-1 px-4 py-3 text-sm font-medium text-white bg-error rounded-xl hover:bg-error/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {cancelling ? 'Cancelling...' : 'Cancel Order'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

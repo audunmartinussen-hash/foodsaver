@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -135,6 +136,14 @@ export default function LoginPage() {
           minLength={6}
         />
 
+        {!isSignUp && (
+          <div className="text-right -mt-2">
+            <Link href="/reset-password" className="text-sm text-olive font-medium hover:underline">
+              Forgot password?
+            </Link>
+          </div>
+        )}
+
         {error && (
           <p className="text-sm text-error bg-error/10 rounded-xl px-4 py-2">{error}</p>
         )}
@@ -155,6 +164,13 @@ export default function LoginPage() {
           >
             {isSignUp ? 'Sign In' : 'Sign Up'}
           </button>
+        </p>
+
+        <p className="text-center text-xs text-dark-green/40 mt-2">
+          By signing up, you agree to our{' '}
+          <Link href="/terms" className="text-olive hover:underline">Terms of Service</Link>
+          {' '}and{' '}
+          <Link href="/privacy" className="text-olive hover:underline">Privacy Policy</Link>
         </p>
       </form>
     </div>

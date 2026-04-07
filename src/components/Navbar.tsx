@@ -54,7 +54,7 @@ export default function Navbar() {
   const { user, loading } = useAuth()
 
   // Hide navbar on login, dashboard, admin pages, and landing page for non-logged-in users
-  if (pathname.startsWith('/login') || pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/dashboard') || pathname.startsWith('/admin') || pathname.startsWith('/reset-password') || pathname.startsWith('/update-password')) {
     return null
   }
 

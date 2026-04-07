@@ -28,6 +28,8 @@ export default function ManageListingsPage() {
   const [quantity, setQuantity] = useState('5')
   const [pickupStart, setPickupStart] = useState('17:00')
   const [pickupEnd, setPickupEnd] = useState('19:00')
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [recurringDays, setRecurringDays] = useState<string[]>([])
 
   const parsedOriginal = parseFloat(originalPrice) || 0
   const computedDiscountedPrice = calcDiscountedPrice(parsedOriginal, discountTier)
@@ -77,6 +79,8 @@ export default function ManageListingsPage() {
         pickup_start: pickupStart,
         pickup_end: pickupEnd,
         available_date: new Date().toISOString().split('T')[0],
+        is_recurring: isRecurring,
+        recurring_days: isRecurring ? recurringDays : [],
       })
       .select()
       .single()
@@ -110,6 +114,8 @@ export default function ManageListingsPage() {
     setQuantity('5')
     setPickupStart('17:00')
     setPickupEnd('19:00')
+    setIsRecurring(false)
+    setRecurringDays([])
   }
 
   const activeListings = listings.filter(l => l.is_active)
@@ -270,6 +276,61 @@ export default function ManageListingsPage() {
                 onChange={(e) => setPickupEnd(e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Recurring Toggle */}
+          <div className="bg-cream rounded-xl p-4">
+            <div className="flex items-center justify-between mb-1">
+              <div>
+                <p className="text-xs font-semibold text-dark-green/60">Recurring Listing</p>
+                <p className="text-[11px] text-dark-green/35 mt-0.5">Auto-renew on selected days each week</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRecurring(!isRecurring)
+                  if (isRecurring) setRecurringDays([])
+                }}
+                className="relative flex-shrink-0"
+              >
+                <div className={`w-11 h-6 rounded-full transition-colors ${
+                  isRecurring ? 'bg-success' : 'bg-dark-green/20'
+                }`}>
+                  <div
+                    className="w-5 h-5 bg-white rounded-full shadow-sm absolute top-0.5"
+                    style={{ transform: isRecurring ? 'translateX(22px)' : 'translateX(2px)', transition: 'transform 0.2s' }}
+                  />
+                </div>
+              </button>
+            </div>
+
+            {isRecurring && (
+              <div className="mt-3 grid grid-cols-7 gap-1.5">
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => {
+                  const selected = recurringDays.includes(day)
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => {
+                        setRecurringDays(
+                          selected
+                            ? recurringDays.filter(d => d !== day)
+                            : [...recurringDays, day]
+                        )
+                      }}
+                      className={`py-2 rounded-lg text-xs font-semibold transition-all border ${
+                        selected
+                          ? 'bg-dark-green text-white border-dark-green'
+                          : 'bg-white text-dark-green/50 border-dark-green/10 hover:border-dark-green/30'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           <Button

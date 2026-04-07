@@ -21,8 +21,21 @@ export default function DashboardPage() {
   const [storeAddress, setStoreAddress] = useState('')
   const [storeCity, setStoreCity] = useState('Cagayan de Oro')
   const [storeCategory, setStoreCategory] = useState('other')
+  const [storeDescription, setStoreDescription] = useState('')
+  const [storeImageFile, setStoreImageFile] = useState<File | null>(null)
+  const [storeImagePreview, setStoreImagePreview] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
   const [creating, setCreating] = useState(false)
   const supabase = createClient()
+
+  const handleStoreImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setStoreImageFile(file)
+    const reader = new FileReader()
+    reader.onloadend = () => setStoreImagePreview(reader.result as string)
+    reader.readAsDataURL(file)
+  }
 
   useEffect(() => {
     if (!user) return
@@ -99,14 +112,37 @@ export default function DashboardPage() {
     if (!user) return
     setCreating(true)
 
+    let imageUrl: string | null = null
+
+    if (storeImageFile) {
+      setUploadingImage(true)
+      const ext = storeImageFile.name.split('.').pop()
+      const filename = `${Date.now()}.${ext}`
+      const path = `${user.id}/${filename}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('store-images')
+        .upload(path, storeImageFile)
+
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage
+          .from('store-images')
+          .getPublicUrl(path)
+        imageUrl = urlData.publicUrl
+      }
+      setUploadingImage(false)
+    }
+
     const { data, error } = await supabase
       .from('stores')
       .insert({
         owner_id: user.id,
         name: storeName,
+        description: storeDescription || null,
         address: storeAddress,
         city: storeCity,
         category: storeCategory,
+        image_url: imageUrl,
       })
       .select()
       .single()
@@ -168,6 +204,16 @@ export default function DashboardPage() {
             />
           </div>
           <div>
+            <label className="block text-sm font-medium mb-1">Description</label>
+            <textarea
+              value={storeDescription}
+              onChange={(e) => setStoreDescription(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl border border-dark-green/15 bg-white resize-none"
+              rows={2}
+              placeholder="Tell customers about your store"
+            />
+          </div>
+          <div>
             <label className="block text-sm font-medium mb-1">Category</label>
             <select
               value={storeCategory}
@@ -181,8 +227,33 @@ export default function DashboardPage() {
               <option value="other">Other</option>
             </select>
           </div>
-          <Button onClick={createStore} disabled={creating || !storeName || !storeAddress} className="w-full" size="lg">
-            {creating ? 'Creating...' : 'Create Store'}
+          <div>
+            <label className="block text-sm font-medium mb-1">Store Photo</label>
+            {storeImagePreview ? (
+              <div className="relative rounded-xl overflow-hidden mb-2">
+                <img src={storeImagePreview} alt="Preview" className="w-full h-40 object-cover rounded-xl" />
+                <button
+                  onClick={() => { setStoreImageFile(null); setStoreImagePreview(null) }}
+                  className="absolute top-2 right-2 w-7 h-7 bg-white/80 backdrop-blur rounded-full flex items-center justify-center text-dark-green/60 hover:bg-white"
+                >
+                  x
+                </button>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-dark-green/20 rounded-xl cursor-pointer hover:border-gold/50 transition-colors bg-cream/50">
+                <span className="text-3xl mb-1">📷</span>
+                <span className="text-xs text-dark-green/40">Tap to add a photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleStoreImageChange}
+                  className="hidden"
+                />
+              </label>
+            )}
+          </div>
+          <Button onClick={createStore} disabled={creating || uploadingImage || !storeName || !storeAddress} className="w-full" size="lg">
+            {uploadingImage ? 'Uploading image...' : creating ? 'Creating...' : 'Create Store'}
           </Button>
         </div>
       </div>

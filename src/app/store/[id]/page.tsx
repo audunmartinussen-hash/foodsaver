@@ -9,13 +9,14 @@ import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
 import { useAuth } from '@/hooks/useAuth'
 import { formatPrice, calcDiscountPercent, calcPlatformFee, formatPickupWindow, generatePickupCode } from '@/lib/utils'
-import type { Store, Listing } from '@/lib/types'
+import type { Store, Listing, Review } from '@/lib/types'
 
 export default function StorePage() {
   const { id } = useParams()
   const { user } = useAuth()
   const [store, setStore] = useState<Store | null>(null)
   const [listings, setListings] = useState<Listing[]>([])
+  const [reviews, setReviews] = useState<Review[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null)
   const [quantity, setQuantity] = useState(1)
@@ -38,8 +39,15 @@ export default function StorePage() {
         .eq('is_active', true)
         .order('created_at', { ascending: false })
 
+      const { data: reviewsData } = await supabase
+        .from('reviews')
+        .select('*, profile:profiles(*)')
+        .eq('store_id', id)
+        .order('created_at', { ascending: false })
+
       setStore(storeData)
       setListings(listingsData ?? [])
+      setReviews((reviewsData as Review[]) ?? [])
       setLoading(false)
     }
 
@@ -161,6 +169,20 @@ export default function StorePage() {
             </div>
             <Badge variant="olive">{store.category}</Badge>
           </div>
+          {store.review_count > 0 && (
+            <div className="flex items-center gap-1.5 mt-2">
+              <div className="flex">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <span key={star} className={`text-sm ${star <= Math.round(store.avg_rating) ? 'text-gold' : 'text-dark-green/15'}`}>
+                    {star <= Math.round(store.avg_rating) ? '\u2605' : '\u2606'}
+                  </span>
+                ))}
+              </div>
+              <span className="text-xs text-dark-green/50">
+                {store.avg_rating.toFixed(1)} ({store.review_count} {store.review_count === 1 ? 'review' : 'reviews'})
+              </span>
+            </div>
+          )}
           {store.description && (
             <p className="text-sm text-dark-green/60 mt-2">{store.description}</p>
           )}
@@ -187,6 +209,54 @@ export default function StorePage() {
                   setQuantity(1)
                 }}
               />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Reviews Section */}
+      <div className="px-4 mt-6">
+        <h2 className="font-display font-semibold text-lg mb-3">
+          Reviews
+          {store.review_count > 0 && (
+            <span className="text-sm font-normal text-dark-green/40 ml-2">
+              ({store.review_count})
+            </span>
+          )}
+        </h2>
+        {reviews.length === 0 ? (
+          <div className="bg-white rounded-2xl p-6 text-center border border-dark-green/5">
+            <p className="text-dark-green/40 text-sm">No reviews yet</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {reviews.map((review) => (
+              <div key={review.id} className="bg-white rounded-2xl p-4 border border-dark-green/5">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <p className="font-medium text-sm text-dark-green">
+                      {review.profile?.full_name || 'Anonymous'}
+                    </p>
+                    <div className="flex mt-0.5">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <span key={star} className={`text-sm ${star <= review.rating ? 'text-gold' : 'text-dark-green/15'}`}>
+                          {star <= review.rating ? '\u2605' : '\u2606'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <span className="text-[11px] text-dark-green/35">
+                    {new Date(review.created_at).toLocaleDateString('en-PH', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </div>
+                {review.comment && (
+                  <p className="text-sm text-dark-green/60 mt-1">{review.comment}</p>
+                )}
+              </div>
             ))}
           </div>
         )}
