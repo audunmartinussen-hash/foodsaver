@@ -25,7 +25,9 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  await supabase.auth.getUser()
+  // Use getSession (reads cookie locally) instead of getUser (network call)
+  // This keeps the session cookie refreshed without adding latency
+  await supabase.auth.getSession()
 
   return supabaseResponse
 }
