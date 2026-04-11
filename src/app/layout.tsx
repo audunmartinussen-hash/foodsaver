@@ -44,7 +44,6 @@ export default function RootLayout({
     <html lang="en" className={`${playfair.variable} ${dmSans.variable}`}>
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       </head>
       <body className="font-body bg-cream text-dark-green antialiased">
         <main className="min-h-screen">

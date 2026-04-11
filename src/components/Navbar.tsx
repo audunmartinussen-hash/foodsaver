@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/hooks/useAuth'
 
 const tabs = [
   {
@@ -51,15 +50,10 @@ const tabs = [
 
 export default function Navbar() {
   const pathname = usePathname()
-  const { user, loading } = useAuth()
 
-  // Hide navbar on login, dashboard, admin pages, and landing page for non-logged-in users
-  if (pathname.startsWith('/login') || pathname.startsWith('/dashboard') || pathname.startsWith('/admin') || pathname.startsWith('/reset-password') || pathname.startsWith('/update-password')) {
-    return null
-  }
-
-  // Hide on landing page when user is not logged in (or still loading)
-  if (pathname === '/' && !user) {
+  // Hide navbar on login, dashboard, admin, auth pages, and landing page
+  const hiddenPrefixes = ['/login', '/dashboard', '/admin', '/reset-password', '/update-password', '/terms', '/privacy']
+  if (hiddenPrefixes.some(p => pathname.startsWith(p))) {
     return null
   }
 
