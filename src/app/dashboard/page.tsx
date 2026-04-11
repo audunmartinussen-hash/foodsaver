@@ -9,12 +9,19 @@ import Button from '@/components/ui/Button'
 import Link from 'next/link'
 import { formatPrice, formatPickupWindow } from '@/lib/utils'
 import type { Store, Order } from '@/lib/types'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell,
+} from 'recharts'
 
 export default function DashboardPage() {
   const { user } = useAuth()
   const [store, setStore] = useState<Store | null>(null)
   const [stats, setStats] = useState({ listings: 0, reservations: 0, pickups: 0, revenue: 0, platformFees: 0, netEarnings: 0 })
   const [recentOrders, setRecentOrders] = useState<Order[]>([])
+  const [weeklySales, setWeeklySales] = useState<{ day: string; revenue: number }[]>([])
+  const [ordersByStatus, setOrdersByStatus] = useState<{ name: string; value: number; color: string }[]>([])
+  const [popularItems, setPopularItems] = useState<{ title: string; orders: number }[]>([])
   const [loading, setLoading] = useState(true)
   const [showStoreForm, setShowStoreForm] = useState(false)
   const [storeName, setStoreName] = useState('')
@@ -98,6 +105,81 @@ export default function DashboardPage() {
           .limit(5)
 
         setRecentOrders(ordersData ?? [])
+
+        // --- Analytics: Weekly Sales (last 7 days, picked_up orders) ---
+        const sevenDaysAgo = new Date()
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
+        sevenDaysAgo.setHours(0, 0, 0, 0)
+
+        const { data: weeklyData } = await supabase
+          .from('orders')
+          .select('total_price, picked_up_at')
+          .eq('store_id', storeData.id)
+          .eq('status', 'picked_up')
+          .gte('picked_up_at', sevenDaysAgo.toISOString())
+
+        const dailyMap: Record<string, number> = {}
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(sevenDaysAgo)
+          d.setDate(d.getDate() + i)
+          const key = d.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })
+          dailyMap[key] = 0
+        }
+        weeklyData?.forEach((o) => {
+          if (o.picked_up_at) {
+            const d = new Date(o.picked_up_at)
+            const key = d.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })
+            if (key in dailyMap) {
+              dailyMap[key] += o.total_price || 0
+            }
+          }
+        })
+        setWeeklySales(Object.entries(dailyMap).map(([day, revenue]) => ({ day, revenue })))
+
+        // --- Analytics: Orders by Status ---
+        const statusColors: Record<string, string> = {
+          reserved: '#C9A84C',
+          confirmed: '#5C6B3C',
+          picked_up: '#4A8C5C',
+          cancelled: '#D94F4F',
+          no_show: '#D94F4F',
+        }
+        const statusEntries: { name: string; value: number; color: string }[] = []
+        for (const [status, color] of Object.entries(statusColors)) {
+          const { count } = await supabase
+            .from('orders')
+            .select('*', { count: 'exact', head: true })
+            .eq('store_id', storeData.id)
+            .eq('status', status)
+          if ((count ?? 0) > 0) {
+            const labels: Record<string, string> = {
+              reserved: 'Reserved', confirmed: 'Confirmed', picked_up: 'Picked Up',
+              cancelled: 'Cancelled', no_show: 'No Show',
+            }
+            statusEntries.push({ name: labels[status] ?? status, value: count ?? 0, color })
+          }
+        }
+        setOrdersByStatus(statusEntries)
+
+        // --- Analytics: Popular Items (top 3 by order count) ---
+        const { data: allOrders } = await supabase
+          .from('orders')
+          .select('listing_id, listing:listings(title)')
+          .eq('store_id', storeData.id)
+
+        if (allOrders && allOrders.length > 0) {
+          const listingCounts: Record<string, { title: string; count: number }> = {}
+          allOrders.forEach((o: any) => {
+            const id = o.listing_id
+            const title = o.listing?.title ?? 'Unknown'
+            if (!listingCounts[id]) listingCounts[id] = { title, count: 0 }
+            listingCounts[id].count++
+          })
+          const sorted = Object.values(listingCounts)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 3)
+          setPopularItems(sorted.map((item) => ({ title: item.title, orders: item.count })))
+        }
       } else {
         setShowStoreForm(true)
       }
@@ -353,6 +435,136 @@ export default function DashboardPage() {
               <span className="text-lg font-bold text-gold">{formatPrice(stats.netEarnings)}</span>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* Analytics */}
+      {(weeklySales.length > 0 || ordersByStatus.length > 0 || popularItems.length > 0) && (
+        <div className="mb-6">
+          <h3 className="font-semibold text-xs text-dark-green/45 uppercase tracking-wider mb-3">
+            Analytics
+          </h3>
+
+          {/* Weekly Sales Chart */}
+          <Card className="p-4 mb-3">
+            <p className="text-sm font-semibold text-dark-green mb-3">Weekly Sales</p>
+            {weeklySales.some((d) => d.revenue > 0) ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={weeklySales} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <XAxis
+                    dataKey="day"
+                    tick={{ fontSize: 10, fill: '#2B3A2B80' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: '#2B3A2B80' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    formatter={(value) => [formatPrice(Number(value)), 'Revenue']}
+                    contentStyle={{
+                      borderRadius: '12px',
+                      border: 'none',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Bar dataKey="revenue" fill="#2B3A2B" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-sm text-dark-green/40">
+                No data yet
+              </div>
+            )}
+          </Card>
+
+          {/* Orders by Status + Popular Items row */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Orders by Status */}
+            <Card className="p-4">
+              <p className="text-sm font-semibold text-dark-green mb-2">Order Status</p>
+              {ordersByStatus.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie
+                        data={ordersByStatus}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={35}
+                        outerRadius={60}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        {ordersByStatus.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: 'none',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                          fontSize: '11px',
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="space-y-1 mt-1">
+                    {ordersByStatus.map((s) => (
+                      <div key={s.name} className="flex items-center gap-1.5">
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: s.color }}
+                        />
+                        <span className="text-[10px] text-dark-green/60 truncate">{s.name}</span>
+                        <span className="text-[10px] font-semibold text-dark-green ml-auto">{s.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center h-[180px] text-sm text-dark-green/40">
+                  No data yet
+                </div>
+              )}
+            </Card>
+
+            {/* Popular Items */}
+            <Card className="p-4">
+              <p className="text-sm font-semibold text-dark-green mb-2">Top Items</p>
+              {popularItems.length > 0 ? (
+                <div className="space-y-3 mt-1">
+                  {popularItems.map((item, i) => (
+                    <div key={i}>
+                      <p className="text-xs font-medium text-dark-green truncate">{item.title}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="flex-1 h-2 bg-dark-green/8 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${(item.orders / popularItems[0].orders) * 100}%`,
+                              backgroundColor: i === 0 ? '#C9A84C' : i === 1 ? '#5C6B3C' : '#2B3A2B',
+                            }}
+                          />
+                        </div>
+                        <span className="text-[11px] font-semibold text-dark-green/60 flex-shrink-0">
+                          {item.orders}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-[180px] text-sm text-dark-green/40">
+                  No data yet
+                </div>
+              )}
+            </Card>
+          </div>
         </div>
       )}
 
