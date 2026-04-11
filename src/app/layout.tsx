@@ -46,7 +46,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body className="font-body bg-cream text-dark-green antialiased">
-        <main className="min-h-screen">
+        <main className="min-h-screen lg:pt-16">
           {children}
         </main>
         <Navbar />

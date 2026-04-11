@@ -21,7 +21,12 @@ html {
 
 body {
   min-height: 100dvh;
-  padding-bottom: 5rem;
+}
+
+@media (max-width: 1023px) {
+  body {
+    padding-bottom: 5rem;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -40,6 +45,11 @@ body {
 @media all and (display-mode: standalone) {
   body {
     padding-top: env(safe-area-inset-top);
+  }
+}
+
+@media all and (display-mode: standalone) and (max-width: 1023px) {
+  body {
     padding-bottom: calc(5rem + env(safe-area-inset-bottom));
   }
 }

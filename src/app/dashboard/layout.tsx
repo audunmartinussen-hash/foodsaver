@@ -35,6 +35,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen">
       {/* Top Nav */}
       <header className="bg-dark-green text-white px-4 pt-4 pb-0">
+        <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-display text-lg font-bold">Store Dashboard</h1>
           <Link href="/profile" className="text-white/70 hover:text-white text-sm">
@@ -60,9 +61,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )
           })}
         </nav>
+        </div>
       </header>
 
-      <div className="px-4 py-5">
+      <div className="px-4 py-5 max-w-6xl mx-auto lg:px-8">
         {children}
       </div>
     </div>

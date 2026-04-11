@@ -9,15 +9,15 @@ export default function LandingPage() {
           <div className="absolute top-10 left-10 w-32 h-32 rounded-full bg-gold blur-3xl" />
           <div className="absolute bottom-10 right-10 w-40 h-40 rounded-full bg-olive blur-3xl" />
         </div>
-        <div className="relative px-6 pt-14 pb-16 text-center max-w-md mx-auto">
+        <div className="relative px-6 lg:px-12 pt-14 pb-16 lg:pt-20 lg:pb-24 text-center max-w-2xl mx-auto">
           <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-1.5 mb-6">
             <span className="text-sm">🇵🇭</span>
             <span className="text-xs font-medium text-white/80">Now in Cagayan de Oro</span>
           </div>
-          <h1 className="font-display text-4xl font-bold leading-tight mb-3">
+          <h1 className="font-display text-4xl lg:text-6xl font-bold leading-tight mb-3">
             FoodSaver
           </h1>
-          <p className="text-lg text-white/80 mb-2 font-medium">
+          <p className="text-lg lg:text-xl text-white/80 mb-2 font-medium">
             Save big on surplus food near you
           </p>
           <p className="text-sm text-white/50 mb-8 max-w-xs mx-auto">
@@ -34,14 +34,14 @@ export default function LandingPage() {
       </section>
 
       {/* How It Works */}
-      <section className="px-6 py-12 max-w-md mx-auto">
+      <section className="px-6 lg:px-12 py-12 max-w-4xl mx-auto">
         <h2 className="font-display text-2xl font-bold text-dark-green text-center mb-2">
           How It Works
         </h2>
         <p className="text-sm text-dark-green/50 text-center mb-8">
           Three simple steps to save food and money
         </p>
-        <div className="space-y-4">
+        <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-3 lg:gap-6">
           {[
             {
               step: '1',
@@ -86,15 +86,15 @@ export default function LandingPage() {
       </section>
 
       {/* Value Props */}
-      <section className="bg-dark-green text-white px-6 py-12">
-        <div className="max-w-md mx-auto">
+      <section className="bg-dark-green text-white px-6 lg:px-12 py-12">
+        <div className="max-w-4xl mx-auto">
           <h2 className="font-display text-2xl font-bold text-center mb-2">
             Why FoodSaver?
           </h2>
           <p className="text-sm text-white/50 text-center mb-8">
             Good for you, good for the planet
           </p>
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {[
               {
                 emoji: '💰',
@@ -126,7 +126,7 @@ export default function LandingPage() {
       </section>
 
       {/* For Business Owners */}
-      <section className="px-6 py-12 max-w-md mx-auto">
+      <section className="px-6 lg:px-12 py-12 max-w-2xl mx-auto">
         <div className="bg-olive/8 border border-olive/15 rounded-3xl p-6">
           <div className="text-center mb-6">
             <span className="text-3xl mb-3 block">🏢</span>
@@ -160,8 +160,8 @@ export default function LandingPage() {
       </section>
 
       {/* Social Proof / Stats */}
-      <section className="bg-white border-y border-dark-green/5 px-6 py-10">
-        <div className="max-w-md mx-auto grid grid-cols-3 gap-4 text-center">
+      <section className="bg-white border-y border-dark-green/5 px-6 lg:px-12 py-10">
+        <div className="max-w-2xl mx-auto grid grid-cols-3 gap-4 text-center">
           {[
             { value: '50-70%', label: 'Savings' },
             { value: '0', label: 'Food Waste' },
@@ -176,7 +176,7 @@ export default function LandingPage() {
       </section>
 
       {/* Final CTA */}
-      <section className="px-6 py-12 text-center max-w-md mx-auto">
+      <section className="px-6 lg:px-12 py-12 text-center max-w-2xl mx-auto">
         <h2 className="font-display text-2xl font-bold text-dark-green mb-2">
           Ready to start saving?
         </h2>
@@ -192,10 +192,10 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="bg-dark-green text-white/40 px-6 py-8">
-        <div className="max-w-md mx-auto">
+      <footer className="bg-dark-green text-white/40 px-6 lg:px-12 py-8">
+        <div className="max-w-4xl mx-auto lg:flex lg:items-start lg:justify-between lg:gap-8">
           <p className="font-display font-bold text-white/80 text-lg mb-3">FoodSaver</p>
-          <p className="text-xs mb-6 leading-relaxed">
+          <p className="text-xs mb-6 leading-relaxed lg:max-w-sm">
             Rescuing surplus food from local businesses, one bag at a time. Saving you money while reducing food waste in Cagayan de Oro.
           </p>
           <div className="flex gap-6 text-xs mb-6">

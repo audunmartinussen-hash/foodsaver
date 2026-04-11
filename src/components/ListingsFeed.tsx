@@ -81,7 +81,7 @@ export default function ListingsFeed() {
   }
 
   return (
-    <div className="px-4 pt-4 pb-8">
+    <div className="px-4 pt-4 pb-8 lg:px-8 max-w-6xl mx-auto">
       <div className="mb-5">
         <h1 className="font-display text-2xl font-bold text-dark-green">
           FoodSaver
@@ -100,7 +100,7 @@ export default function ListingsFeed() {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="bg-white rounded-2xl h-56 animate-pulse" />
           ))}
@@ -114,7 +114,7 @@ export default function ListingsFeed() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {listings.map((listing) => (
             <ListingCard
               key={listing.id}

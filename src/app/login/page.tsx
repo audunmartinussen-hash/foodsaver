@@ -64,7 +64,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col justify-center px-6 py-12">
+    <div className="min-h-screen flex flex-col justify-center px-6 py-12 lg:flex-row lg:min-h-screen lg:p-0">
+      {/* Desktop branded side panel */}
+      <div className="hidden lg:flex lg:w-1/2 bg-dark-green text-white flex-col items-center justify-center p-12">
+        <h2 className="font-display text-5xl font-bold mb-4">FoodSaver</h2>
+        <p className="text-white/70 text-lg text-center max-w-md">
+          Save money on surplus food from local stores. Get surprise bags and discounted bundles at 50-70% off.
+        </p>
+      </div>
+
+      <div className="lg:w-1/2 lg:flex lg:flex-col lg:justify-center lg:px-16">
       <div className="text-center mb-8">
         <h1 className="font-display text-3xl font-bold text-dark-green mb-2">
           FoodSaver
@@ -173,6 +182,7 @@ export default function LoginPage() {
           <Link href="/privacy" className="text-olive hover:underline">Privacy Policy</Link>
         </p>
       </form>
+      </div>
     </div>
   )
 }

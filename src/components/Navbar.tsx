@@ -58,8 +58,9 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-dark-green/10 z-40 safe-bottom">
-      <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-dark-green/10 z-40 safe-bottom lg:top-0 lg:bottom-auto lg:border-b lg:border-t-0">
+      <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2 lg:max-w-6xl lg:justify-start lg:gap-1">
+        <span className="hidden lg:block font-display text-lg font-bold text-dark-green mr-8">FoodSaver</span>
         {tabs.map((tab) => {
           const isActive = tab.href === '/' ? pathname === '/' : pathname.startsWith(tab.href)
           return (
@@ -68,13 +69,14 @@ export default function Navbar() {
               href={tab.href}
               className={cn(
                 'flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-xl transition-colors min-w-[60px]',
+                'lg:flex-row lg:gap-2 lg:px-4 lg:py-2 lg:min-w-0',
                 isActive ? 'text-dark-green' : 'text-dark-green/40'
               )}
             >
-              <span className={cn(isActive && 'scale-110 transition-transform')}>
+              <span className={cn('lg:w-5 lg:h-5 lg:[&>svg]:w-5 lg:[&>svg]:h-5', isActive && 'scale-110 transition-transform')}>
                 {tab.icon}
               </span>
-              <span className="text-[10px] font-medium">{tab.label}</span>
+              <span className="text-[10px] font-medium lg:text-sm">{tab.label}</span>
             </Link>
           )
         })}

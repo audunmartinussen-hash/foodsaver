@@ -4,9 +4,10 @@ import ListingsFeed from '@/components/ListingsFeed'
 
 export default async function HomePage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Use getSession (reads cookie, no network call) instead of getUser
+  const { data: { session } } = await supabase.auth.getSession()
 
-  if (!user) {
+  if (!session) {
     return <LandingPage />
   }
 
