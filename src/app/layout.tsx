@@ -16,7 +16,7 @@ const dmSans = DM_Sans({
   display: 'swap',
 })
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://foodsaver.ph'
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://foodsaverph.com'
 
 /**
  * Root metadata.

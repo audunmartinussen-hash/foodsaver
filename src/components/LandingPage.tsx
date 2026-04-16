@@ -17,7 +17,7 @@ import Link from 'next/link'
  *   results (sitelinks, FAQ accordion in SERP) are eligible on day one.
  */
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://foodsaver.ph'
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://foodsaverph.com'
 
 const faqs = [
   {

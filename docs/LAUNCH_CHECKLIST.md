@@ -51,7 +51,7 @@ these with scope `Production, Preview, Development` unless noted.
 
 | Var | Value / where to get it |
 |---|---|
-| `NEXT_PUBLIC_SITE_URL` | `https://foodsaver.ph` (no trailing slash). Used by robots.ts, sitemap.ts, OG tags, JSON-LD. |
+| `NEXT_PUBLIC_SITE_URL` | `https://foodsaverph.com` (no trailing slash). Used by robots.ts, sitemap.ts, OG tags, JSON-LD. |
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://oavgquwjvbzrgqpoufgx.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase dashboard → Project Settings → API → `anon public` key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Project Settings → API → `service_role` key. **Server-side only.** Do NOT add `NEXT_PUBLIC_` prefix. |
@@ -74,13 +74,12 @@ Redeploy) — env var changes only take effect on a new build.
 
 ---
 
-## 3. Connect the domain
+## 3. Domain — already done
 
-Vercel → Project → Settings → Domains → Add `foodsaver.ph`. Follow the DNS
-instructions Vercel gives you. Until this is done, `NEXT_PUBLIC_SITE_URL`
-should be set to whatever your Vercel preview URL is (e.g.
-`foodsaver.vercel.app`) — otherwise social share scrapers (Facebook,
-Twitter) will try to fetch from a domain that doesn\u2019t resolve.
+`foodsaverph.com` is already connected in Vercel. Just make sure
+`NEXT_PUBLIC_SITE_URL=https://foodsaverph.com` is set in your Vercel env
+vars (step 2 above) so `robots.txt`, `sitemap.xml`, OG tags and JSON-LD
+all point at the real domain.
 
 ---
 
@@ -135,7 +134,7 @@ It activates automatically on first prod deploy. Verify manually:
 
 ```bash
 # Replace CRON_SECRET with the value you set in Vercel env vars.
-curl -X POST "https://foodsaver.ph/api/admin/no-show-sweep" \
+curl -X POST "https://foodsaverph.com/api/admin/no-show-sweep" \
   -H "Authorization: Bearer YOUR_CRON_SECRET"
 ```
 
@@ -230,7 +229,7 @@ ORDER BY no_show_count_30d DESC;
 
 ### Manual cron trigger (useful if you want to test the sweep)
 ```bash
-curl -X POST "https://foodsaver.ph/api/admin/no-show-sweep" \
+curl -X POST "https://foodsaverph.com/api/admin/no-show-sweep" \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
