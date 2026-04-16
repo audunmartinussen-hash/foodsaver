@@ -7,17 +7,34 @@ import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
 import Link from 'next/link'
-import { formatPrice, formatPickupWindow } from '@/lib/utils'
+import { formatPrice, formatPickupWindow, LAUNCH_CITY } from '@/lib/utils'
 import type { Store, Order } from '@/lib/types'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts'
 
+/**
+ * Merchant dashboard landing.
+ *
+ * Post-pivot copy: the merchant collects **cash at pickup** — FoodSaver takes
+ * **no cut** of item revenue. The only money that flows through FoodSaver is
+ * the 20 PHP reservation fee paid by buyers via GCash, which is billed
+ * separately and never touches the merchant.
+ *
+ * So: no "platform fee", no "net earnings" line, no surprise-bag wording.
+ * What the merchant cares about here is:
+ *   1. Today's confirmed reservations (with pickup codes visible so they can
+ *      glance-verify a buyer),
+ *   2. Their listing pipeline,
+ *   3. Historical revenue & trend.
+ */
+
 export default function DashboardPage() {
   const { user } = useAuth()
   const [store, setStore] = useState<Store | null>(null)
-  const [stats, setStats] = useState({ listings: 0, reservations: 0, pickups: 0, revenue: 0, platformFees: 0, netEarnings: 0 })
+  const [stats, setStats] = useState({ listings: 0, reservations: 0, pickups: 0, revenue: 0 })
+  const [todayReservations, setTodayReservations] = useState<Order[]>([])
   const [recentOrders, setRecentOrders] = useState<Order[]>([])
   const [weeklySales, setWeeklySales] = useState<{ day: string; revenue: number }[]>([])
   const [ordersByStatus, setOrdersByStatus] = useState<{ name: string; value: number; color: string }[]>([])
@@ -26,7 +43,7 @@ export default function DashboardPage() {
   const [showStoreForm, setShowStoreForm] = useState(false)
   const [storeName, setStoreName] = useState('')
   const [storeAddress, setStoreAddress] = useState('')
-  const [storeCity, setStoreCity] = useState('Cagayan de Oro')
+  const [storeCity, setStoreCity] = useState(LAUNCH_CITY)
   const [storeCategory, setStoreCategory] = useState('other')
   const [storeDescription, setStoreDescription] = useState('')
   const [storeImageFile, setStoreImageFile] = useState<File | null>(null)
@@ -58,45 +75,45 @@ export default function DashboardPage() {
       if (storeData) {
         setStore(storeData)
 
-        // Get stats
+        const today = new Date().toISOString().split('T')[0]
+
+        // Active listing count
         const { count: listingCount } = await supabase
           .from('listings')
           .select('*', { count: 'exact', head: true })
           .eq('store_id', storeData.id)
           .eq('is_active', true)
 
-        const { count: reservationCount } = await supabase
+        // Pickups lifetime (for "bags saved" and revenue)
+        const { data: pickupRows } = await supabase
           .from('orders')
-          .select('*', { count: 'exact', head: true })
-          .eq('store_id', storeData.id)
-          .eq('status', 'reserved')
-
-        const { count: pickupCount } = await supabase
-          .from('orders')
-          .select('*', { count: 'exact', head: true })
+          .select('total_price')
           .eq('store_id', storeData.id)
           .eq('status', 'picked_up')
 
-        // Get total revenue from picked_up orders
-        const { data: revenueData } = await supabase
-          .from('orders')
-          .select('total_price, platform_fee')
-          .eq('store_id', storeData.id)
-          .eq('status', 'picked_up')
+        const totalRevenue = pickupRows?.reduce((sum, o) => sum + (o.total_price || 0), 0) ?? 0
 
-        const totalRevenue = revenueData?.reduce((sum, o) => sum + (o.total_price || 0), 0) ?? 0
-        const totalPlatformFees = revenueData?.reduce((sum, o) => sum + (o.platform_fee || 0), 0) ?? 0
+        // Today's confirmed/reserved orders — the "ops" view
+        const { data: todayData } = await supabase
+          .from('orders')
+          .select('*, listing:listings(*)')
+          .eq('store_id', storeData.id)
+          .in('status', ['confirmed', 'reserved'])
+          .order('reserved_at', { ascending: true })
+
+        const todayOnly = (todayData ?? []).filter(
+          (o) => o.listing?.available_date === today
+        ) as Order[]
 
         setStats({
           listings: listingCount ?? 0,
-          reservations: reservationCount ?? 0,
-          pickups: pickupCount ?? 0,
+          reservations: todayOnly.length,
+          pickups: pickupRows?.length ?? 0,
           revenue: totalRevenue,
-          platformFees: totalPlatformFees,
-          netEarnings: totalRevenue - totalPlatformFees,
         })
+        setTodayReservations(todayOnly.slice(0, 5))
 
-        // Get recent orders
+        // Recent orders (mixed status) for the history card
         const { data: ordersData } = await supabase
           .from('orders')
           .select('*, listing:listings(*)')
@@ -138,7 +155,6 @@ export default function DashboardPage() {
 
         // --- Analytics: Orders by Status ---
         const statusColors: Record<string, string> = {
-          reserved: '#C9A84C',
           confirmed: '#5C6B3C',
           picked_up: '#4A8C5C',
           cancelled: '#D94F4F',
@@ -153,7 +169,7 @@ export default function DashboardPage() {
             .eq('status', status)
           if ((count ?? 0) > 0) {
             const labels: Record<string, string> = {
-              reserved: 'Reserved', confirmed: 'Confirmed', picked_up: 'Picked Up',
+              confirmed: 'Confirmed', picked_up: 'Picked Up',
               cancelled: 'Cancelled', no_show: 'No Show',
             }
             statusEntries.push({ name: labels[status] ?? status, value: count ?? 0, color })
@@ -169,9 +185,12 @@ export default function DashboardPage() {
 
         if (allOrders && allOrders.length > 0) {
           const listingCounts: Record<string, { title: string; count: number }> = {}
-          allOrders.forEach((o: any) => {
+          allOrders.forEach((o: { listing_id: string; listing?: { title?: string } | { title?: string }[] | null }) => {
             const id = o.listing_id
-            const title = o.listing?.title ?? 'Unknown'
+            const listingField = o.listing
+            const title = Array.isArray(listingField)
+              ? listingField[0]?.title ?? 'Unknown'
+              : listingField?.title ?? 'Unknown'
             if (!listingCounts[id]) listingCounts[id] = { title, count: 0 }
             listingCounts[id].count++
           })
@@ -215,7 +234,7 @@ export default function DashboardPage() {
       setUploadingImage(false)
     }
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('stores')
       .insert({
         owner_id: user.id,
@@ -237,6 +256,8 @@ export default function DashboardPage() {
   }
 
   const statusConfig: Record<string, { label: string; variant: 'gold' | 'olive' | 'success' | 'error' }> = {
+    pending_fee_payment: { label: 'Fee pending', variant: 'gold' },
+    pending_verification: { label: 'Verifying', variant: 'gold' },
     reserved: { label: 'Reserved', variant: 'gold' },
     confirmed: { label: 'Confirmed', variant: 'olive' },
     picked_up: { label: 'Picked Up', variant: 'success' },
@@ -257,10 +278,14 @@ export default function DashboardPage() {
   if (showStoreForm) {
     return (
       <div className="max-w-md">
-        <h2 className="font-display text-xl font-bold mb-4">Set Up Your Store</h2>
+        <h2 className="font-display text-xl font-bold mb-1">Set up your store</h2>
+        <p className="text-sm text-dark-green/55 mb-4">
+          After you submit, we&rsquo;ll review your details and sign the paper merchant agreement
+          before your listings go live to buyers.
+        </p>
         <div className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Store Name</label>
+            <label className="block text-sm font-medium mb-1">Store name</label>
             <input
               value={storeName}
               onChange={(e) => setStoreName(e.target.value)}
@@ -284,6 +309,9 @@ export default function DashboardPage() {
               onChange={(e) => setStoreCity(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl border border-dark-green/15 bg-white"
             />
+            <p className="text-[11px] text-dark-green/40 mt-1">
+              We&rsquo;re launching in {LAUNCH_CITY} only right now.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Description</label>
@@ -310,9 +338,10 @@ export default function DashboardPage() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Store Photo</label>
+            <label className="block text-sm font-medium mb-1">Store photo</label>
             {storeImagePreview ? (
               <div className="relative rounded-xl overflow-hidden mb-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={storeImagePreview} alt="Preview" className="w-full h-40 object-cover rounded-xl" />
                 <button
                   onClick={() => { setStoreImageFile(null); setStoreImagePreview(null) }}
@@ -323,7 +352,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-dark-green/20 rounded-xl cursor-pointer hover:border-gold/50 transition-colors bg-cream/50">
-                <span className="text-3xl mb-1">📷</span>
+                <span className="text-3xl mb-1">\uD83D\uDCF7</span>
                 <span className="text-xs text-dark-green/40">Tap to add a photo</span>
                 <input
                   type="file"
@@ -335,7 +364,7 @@ export default function DashboardPage() {
             )}
           </div>
           <Button onClick={createStore} disabled={creating || uploadingImage || !storeName || !storeAddress} className="w-full" size="lg">
-            {uploadingImage ? 'Uploading image...' : creating ? 'Creating...' : 'Create Store'}
+            {uploadingImage ? 'Uploading image\u2026' : creating ? 'Submitting\u2026' : 'Submit for review'}
           </Button>
         </div>
       </div>
@@ -355,87 +384,127 @@ export default function DashboardPage() {
         <div className="bg-gold/10 border border-gold/25 rounded-2xl p-4 mb-5">
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl bg-gold/15 flex items-center justify-center flex-shrink-0">
-              <span className="text-xl">⏳</span>
+              <span className="text-xl">\u23F3</span>
             </div>
             <div>
-              <p className="font-semibold text-sm text-dark-green">Store Under Review</p>
+              <p className="font-semibold text-sm text-dark-green">Store under review</p>
               <p className="text-xs text-dark-green/60 mt-0.5 leading-relaxed">
-                We are reviewing your store. Listings will be visible to customers once approved. This usually takes less than 24 hours.
+                Your listings are hidden from buyers until we complete the paper
+                merchant agreement. Questions? Message the founders.
               </p>
             </div>
           </div>
         </div>
       )}
 
+      {/* Today's Reservations — top of the page, the thing merchants glance at */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-xs text-dark-green/45 uppercase tracking-wider">
+            Today&rsquo;s reservations
+          </h3>
+          <Link href="/dashboard/orders" className="text-xs text-olive font-medium">
+            View all
+          </Link>
+        </div>
+        {todayReservations.length === 0 ? (
+          <Card className="p-6 text-center">
+            <p className="text-3xl mb-2">\uD83C\uDF1E</p>
+            <p className="text-sm font-medium text-dark-green">No reservations for today yet</p>
+            <p className="text-xs text-dark-green/40 mt-0.5">
+              New reservations appear here the moment admin confirms the buyer&rsquo;s fee.
+            </p>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {todayReservations.map((order) => (
+              <Card key={order.id} className="p-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{order.listing?.title ?? 'Order'}</p>
+                    <p className="text-[11px] text-dark-green/45">
+                      Qty: {order.quantity} \u00B7 {formatPrice(order.total_price)} cash
+                    </p>
+                    {order.listing && (
+                      <p className="text-[11px] text-dark-green/40">
+                        {formatPickupWindow(order.listing.pickup_start, order.listing.pickup_end)}
+                      </p>
+                    )}
+                  </div>
+                  {order.pickup_code ? (
+                    <div className="bg-cream rounded-lg px-3 py-1.5 text-center flex-shrink-0">
+                      <p className="text-[9px] uppercase tracking-wider text-dark-green/45">Code</p>
+                      <p className="font-display text-lg font-bold tracking-widest text-dark-green leading-none">
+                        {order.pickup_code}
+                      </p>
+                    </div>
+                  ) : (
+                    <Badge variant="gold">Reserved</Badge>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <Card className="p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs text-dark-green/45 font-medium">Active Listings</p>
+              <p className="text-xs text-dark-green/45 font-medium">Active listings</p>
               <p className="text-3xl font-bold text-dark-green mt-1">{stats.listings}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-olive/10 flex items-center justify-center">
-              <span className="text-lg">📦</span>
+              <span className="text-lg">\uD83D\uDCE6</span>
             </div>
           </div>
         </Card>
         <Card className="p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs text-dark-green/45 font-medium">Pending Pickup</p>
+              <p className="text-xs text-dark-green/45 font-medium">Today&rsquo;s pickups</p>
               <p className="text-3xl font-bold text-gold mt-1">{stats.reservations}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-gold/10 flex items-center justify-center">
-              <span className="text-lg">🕐</span>
+              <span className="text-lg">\uD83D\uDD50</span>
             </div>
           </div>
         </Card>
         <Card className="p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs text-dark-green/45 font-medium">Bags Saved</p>
+              <p className="text-xs text-dark-green/45 font-medium">Bags saved</p>
               <p className="text-3xl font-bold text-success mt-1">{stats.pickups}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center">
-              <span className="text-lg">🌱</span>
+              <span className="text-lg">\uD83C\uDF31</span>
             </div>
           </div>
         </Card>
         <Card className="p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs text-dark-green/45 font-medium">Net Earnings</p>
-              <p className="text-2xl font-bold text-dark-green mt-1">{formatPrice(stats.netEarnings)}</p>
+              <p className="text-xs text-dark-green/45 font-medium">Cash collected</p>
+              <p className="text-2xl font-bold text-dark-green mt-1">{formatPrice(stats.revenue)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-dark-green/8 flex items-center justify-center">
-              <span className="text-lg">💰</span>
+              <span className="text-lg">\uD83D\uDCB0</span>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Revenue Breakdown */}
+      {/* Revenue note — no platform cut, just a clarifying tip */}
       {stats.revenue > 0 && (
-        <div className="mb-6">
-          <h3 className="font-semibold text-xs text-dark-green/45 uppercase tracking-wider mb-3">
-            Revenue Breakdown
-          </h3>
-          <Card className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-dark-green/60">Total Sales</span>
-              <span className="text-sm font-semibold">{formatPrice(stats.revenue)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-dark-green/60">FoodSaver Fee (15%)</span>
-              <span className="text-sm font-semibold text-error">-{formatPrice(stats.platformFees)}</span>
-            </div>
-            <div className="border-t border-dark-green/10 pt-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-dark-green">Your Earnings</span>
-              <span className="text-lg font-bold text-gold">{formatPrice(stats.netEarnings)}</span>
-            </div>
-          </Card>
-        </div>
+        <Card className="p-4 mb-6 bg-cream/60 border border-dark-green/5">
+          <p className="text-sm font-semibold text-dark-green">You keep 100% of pickup cash</p>
+          <p className="text-xs text-dark-green/60 mt-1 leading-relaxed">
+            FoodSaver doesn&rsquo;t take a cut of what buyers pay you at pickup. Buyers
+            pay a separate 20 PHP reservation fee to FoodSaver via GCash to hold their bag.
+          </p>
+        </Card>
       )}
 
       {/* Analytics */}
@@ -447,7 +516,7 @@ export default function DashboardPage() {
 
           {/* Weekly Sales Chart */}
           <Card className="p-4 mb-3">
-            <p className="text-sm font-semibold text-dark-green mb-3">Weekly Sales</p>
+            <p className="text-sm font-semibold text-dark-green mb-3">Weekly pickups revenue</p>
             {weeklySales.some((d) => d.revenue > 0) ? (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={weeklySales} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -485,7 +554,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 gap-3">
             {/* Orders by Status */}
             <Card className="p-4">
-              <p className="text-sm font-semibold text-dark-green mb-2">Order Status</p>
+              <p className="text-sm font-semibold text-dark-green mb-2">Order status</p>
               {ordersByStatus.length > 0 ? (
                 <>
                   <ResponsiveContainer width="100%" height={180}>
@@ -535,7 +604,7 @@ export default function DashboardPage() {
 
             {/* Popular Items */}
             <Card className="p-4">
-              <p className="text-sm font-semibold text-dark-green mb-2">Top Items</p>
+              <p className="text-sm font-semibold text-dark-green mb-2">Top items</p>
               {popularItems.length > 0 ? (
                 <div className="space-y-3 mt-1">
                   {popularItems.map((item, i) => (
@@ -570,7 +639,7 @@ export default function DashboardPage() {
 
       {/* Quick Actions */}
       <h3 className="font-semibold text-xs text-dark-green/45 uppercase tracking-wider mb-3">
-        Quick Actions
+        Quick actions
       </h3>
       <div className="grid grid-cols-2 gap-3 mb-6">
         <Link href="/dashboard/listings">
@@ -580,8 +649,8 @@ export default function DashboardPage() {
                 <span className="text-2xl">+</span>
               </div>
               <div>
-                <p className="font-semibold text-sm">Add Listing</p>
-                <p className="text-[11px] text-dark-green/40 mt-0.5">Create a new surprise bag</p>
+                <p className="font-semibold text-sm">Add listing</p>
+                <p className="text-[11px] text-dark-green/40 mt-0.5">Discounted item, fixed price</p>
               </div>
             </div>
           </Card>
@@ -590,14 +659,14 @@ export default function DashboardPage() {
           <Card className="p-4 hover:shadow-md transition-shadow h-full">
             <div className="flex flex-col items-center text-center gap-2">
               <div className="w-12 h-12 rounded-2xl bg-gold/10 flex items-center justify-center">
-                <span className="text-2xl">🧾</span>
+                <span className="text-2xl">\uD83E\uDDFE</span>
               </div>
               <div>
-                <p className="font-semibold text-sm">View Orders</p>
+                <p className="font-semibold text-sm">View orders</p>
                 <p className="text-[11px] text-dark-green/40 mt-0.5">
                   {stats.reservations > 0
-                    ? `${stats.reservations} awaiting pickup`
-                    : 'Manage reservations'}
+                    ? `${stats.reservations} to pick up today`
+                    : 'Mark pickups, handle no-shows'}
                 </p>
               </div>
             </div>
@@ -608,7 +677,7 @@ export default function DashboardPage() {
       {/* Recent Orders */}
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-xs text-dark-green/45 uppercase tracking-wider">
-          Recent Orders
+          Recent orders
         </h3>
         {recentOrders.length > 0 && (
           <Link href="/dashboard/orders" className="text-xs text-olive font-medium">
@@ -619,7 +688,7 @@ export default function DashboardPage() {
 
       {recentOrders.length === 0 ? (
         <Card className="p-6 text-center">
-          <p className="text-3xl mb-2">🧾</p>
+          <p className="text-3xl mb-2">\uD83E\uDDFE</p>
           <p className="text-sm text-dark-green/50">No orders yet</p>
           <p className="text-xs text-dark-green/35 mt-0.5">Orders will appear here when customers reserve</p>
         </Card>
@@ -633,15 +702,15 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3 min-w-0">
                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
                       order.status === 'picked_up' ? 'bg-success/10' :
-                      order.status === 'reserved' ? 'bg-gold/10' :
+                      order.status === 'reserved' || order.status === 'confirmed' ? 'bg-gold/10' :
                       order.status === 'cancelled' || order.status === 'no_show' ? 'bg-error/10' :
                       'bg-olive/10'
                     }`}>
                       <span className="text-base">
-                        {order.status === 'picked_up' ? '✅' :
-                         order.status === 'reserved' ? '🕐' :
-                         order.status === 'cancelled' ? '❌' :
-                         order.status === 'no_show' ? '🚫' : '📋'}
+                        {order.status === 'picked_up' ? '\u2705' :
+                         order.status === 'reserved' || order.status === 'confirmed' ? '\uD83D\uDD50' :
+                         order.status === 'cancelled' ? '\u274C' :
+                         order.status === 'no_show' ? '\uD83D\uDEAB' : '\uD83D\uDCCB'}
                       </span>
                     </div>
                     <div className="min-w-0">
@@ -649,7 +718,7 @@ export default function DashboardPage() {
                         {order.listing?.title ?? 'Order'}
                       </p>
                       <p className="text-[11px] text-dark-green/40">
-                        Qty: {order.quantity} · {formatPrice(order.total_price)} · {new Date(order.reserved_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+                        Qty: {order.quantity} \u00B7 {formatPrice(order.total_price)} \u00B7 {new Date(order.reserved_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
                       </p>
                     </div>
                   </div>

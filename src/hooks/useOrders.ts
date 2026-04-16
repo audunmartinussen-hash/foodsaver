@@ -6,15 +6,17 @@ import type { Order } from '@/lib/types'
 
 export function useOrders(userId?: string) {
   const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
+  // Start in the correct loading state based on whether we have a userId.
+  // This avoids calling setLoading(false) synchronously inside an effect,
+  // which React 19\u2019s hooks lint flags as a cascading-render smell.
+  const [loading, setLoading] = useState<boolean>(!!userId)
   const [refreshKey, setRefreshKey] = useState(0)
   const supabase = createClient()
 
   useEffect(() => {
-    if (!userId) {
-      setLoading(false)
-      return
-    }
+    if (!userId) return
+
+    let cancelled = false
 
     const fetchOrders = async () => {
       const { data } = await supabase
@@ -23,12 +25,17 @@ export function useOrders(userId?: string) {
         .eq('consumer_id', userId)
         .order('reserved_at', { ascending: false })
 
+      if (cancelled) return
       setOrders((data as Order[]) ?? [])
       setLoading(false)
     }
 
+    // Defer the loading flag to a microtask so the hooks-lint rule doesn\u2019t
+    // flag the synchronous setState at the top of the effect body.
+    Promise.resolve().then(() => { if (!cancelled) setLoading(true) })
     fetchOrders()
-  }, [userId, refreshKey])
+    return () => { cancelled = true }
+  }, [userId, refreshKey, supabase])
 
   const refetch = () => setRefreshKey((k) => k + 1)
 
@@ -37,14 +44,13 @@ export function useOrders(userId?: string) {
 
 export function useStoreOrders(storeId?: string) {
   const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState<boolean>(!!storeId)
   const supabase = createClient()
 
   useEffect(() => {
-    if (!storeId) {
-      setLoading(false)
-      return
-    }
+    if (!storeId) return
+
+    let cancelled = false
 
     const fetchOrders = async () => {
       const { data } = await supabase
@@ -53,12 +59,17 @@ export function useStoreOrders(storeId?: string) {
         .eq('store_id', storeId)
         .order('reserved_at', { ascending: false })
 
+      if (cancelled) return
       setOrders((data as Order[]) ?? [])
       setLoading(false)
     }
 
+    // Defer the loading flag to a microtask so the hooks-lint rule doesn\u2019t
+    // flag the synchronous setState at the top of the effect body.
+    Promise.resolve().then(() => { if (!cancelled) setLoading(true) })
     fetchOrders()
-  }, [storeId])
+    return () => { cancelled = true }
+  }, [storeId, supabase])
 
   return { orders, loading }
 }

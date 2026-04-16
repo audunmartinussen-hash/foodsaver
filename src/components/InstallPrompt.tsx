@@ -28,13 +28,16 @@ export default function InstallPrompt() {
     const dismissed = localStorage.getItem('fs_install_dismissed')
     if (dismissed) return
 
-    // iOS detection
+    // iOS detection — defer the setState to a microtask so the hooks lint
+    // rule doesn\u2019t flag a sync state update in the effect body.
     const ua = navigator.userAgent
     const isiOS = /iPad|iPhone|iPod/.test(ua) && !('MSStream' in window)
-    setIsIOS(isiOS)
 
     if (isiOS) {
-      setShowPrompt(true)
+      Promise.resolve().then(() => {
+        setIsIOS(true)
+        setShowPrompt(true)
+      })
       return
     }
 

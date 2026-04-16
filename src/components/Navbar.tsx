@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/hooks/useAuth'
 
 const tabs = [
   {
@@ -50,10 +51,18 @@ const tabs = [
 
 export default function Navbar() {
   const pathname = usePathname()
+  const { user, loading } = useAuth()
 
-  // Hide navbar on login, dashboard, admin, auth pages, and landing page
+  // Hide navbar on login, dashboard, admin, auth pages
   const hiddenPrefixes = ['/login', '/dashboard', '/admin', '/reset-password', '/update-password', '/terms', '/privacy']
   if (hiddenPrefixes.some(p => pathname.startsWith(p))) {
+    return null
+  }
+
+  // Hide on the public landing page (`/` when signed out) — avoid showing a
+  // logged-in tab bar to visitors who don\u2019t have an account yet. While auth
+  // resolves, keep it hidden to prevent a flash of navbar on the landing hero.
+  if (!user || loading) {
     return null
   }
 

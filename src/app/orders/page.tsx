@@ -1,7 +1,6 @@
 'use client'
 
 import { Suspense, useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
 import { createClient } from '@/lib/supabase/client'
@@ -9,6 +8,7 @@ import OrderCard from '@/components/OrderCard'
 import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
 import Link from 'next/link'
+import { track } from '@/lib/analytics'
 
 export default function OrdersPage() {
   return (
@@ -48,9 +48,6 @@ function StarRating({ rating, onRate, size = 'lg' }: { rating: number; onRate?: 
 function OrdersContent() {
   const { user, loading: authLoading } = useAuth()
   const { orders, loading: ordersLoading, refetch } = useOrders(user?.id)
-  const searchParams = useSearchParams()
-  const [banner, setBanner] = useState<{ type: 'success' | 'cancelled'; orderId: string } | null>(null)
-  const [retrying, setRetrying] = useState<string | null>(null)
   const supabase = createClient()
 
   // Cancel order state
@@ -66,22 +63,6 @@ function OrdersContent() {
   const [submittingReview, setSubmittingReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [reviewedOrders, setReviewedOrders] = useState<Set<string>>(new Set())
-
-  useEffect(() => {
-    const payment = searchParams.get('payment')
-    const orderId = searchParams.get('order_id')
-
-    if (payment && orderId) {
-      if (payment === 'success') {
-        setBanner({ type: 'success', orderId })
-      } else if (payment === 'cancelled') {
-        setBanner({ type: 'cancelled', orderId })
-      }
-
-      // Clean up URL params without triggering navigation
-      window.history.replaceState({}, '', '/orders')
-    }
-  }, [searchParams])
 
   // Fetch which orders have already been reviewed
   useEffect(() => {
@@ -107,36 +88,6 @@ function OrdersContent() {
     fetchReviews()
   }, [user, orders])
 
-  const handleRetryPayment = async (orderId: string) => {
-    const order = orders.find(o => o.id === orderId)
-    if (!order || !order.listing) return
-
-    setRetrying(orderId)
-
-    try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: order.id,
-          listingTitle: order.listing.title,
-          amount: order.total_price,
-          quantity: order.quantity,
-        }),
-      })
-
-      const data = await res.json()
-
-      if (res.ok && data.checkoutUrl) {
-        window.location.href = data.checkoutUrl
-      }
-    } catch {
-      // Silently fail, user can try again
-    }
-
-    setRetrying(null)
-  }
-
   const handleCancelOrder = async () => {
     if (!cancelOrderId || !cancelReason.trim()) return
 
@@ -158,6 +109,7 @@ function OrdersContent() {
       return
     }
 
+    track('reservation_cancelled', { order_id: cancelOrderId, source: 'buyer', reason: cancelReason.trim() })
     setCancelOrderId(null)
     setCancelReason('')
     setCancelling(false)
@@ -226,7 +178,7 @@ function OrdersContent() {
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center">
-        <p className="text-5xl mb-4">📦</p>
+        <p className="text-5xl mb-4">\uD83D\uDCE6</p>
         <h2 className="font-display text-xl font-semibold mb-2">Sign in to view orders</h2>
         <p className="text-sm text-dark-green/50 mb-4">
           Track your reserved food pickups
@@ -238,66 +190,20 @@ function OrdersContent() {
     )
   }
 
-  const activeOrders = orders.filter(o => o.status === 'reserved' || o.status === 'confirmed')
-  const pastOrders = orders.filter(o => o.status !== 'reserved' && o.status !== 'confirmed')
+  // Active = anything pre-pickup. New statuses `pending_fee_payment`,
+  // `pending_verification` are included so the buyer sees their in-flight
+  // reservations with the right CTA.
+  const activeStatuses = new Set(['pending_fee_payment', 'pending_verification', 'reserved', 'confirmed'])
+  const activeOrders = orders.filter(o => activeStatuses.has(o.status))
+  const pastOrders = orders.filter(o => !activeStatuses.has(o.status))
 
   return (
-    <div className="px-4 pt-4 pb-8">
+    <div className="px-4 pt-4 pb-8 max-w-2xl mx-auto">
       <h1 className="font-display text-2xl font-bold text-dark-green mb-5">My Orders</h1>
-
-      {/* Payment status banners */}
-      {banner?.type === 'success' && (
-        <div className="bg-success/10 border border-success/20 rounded-2xl p-4 mb-5">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">✅</span>
-            <div>
-              <p className="font-semibold text-dark-green text-sm">Payment successful!</p>
-              <p className="text-xs text-dark-green/50 mt-0.5">
-                Your order is confirmed. Show the pickup code at the store.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setBanner(null)}
-            className="mt-2 text-xs text-dark-green/40 hover:text-dark-green/60"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {banner?.type === 'cancelled' && (
-        <div className="bg-gold/10 border border-gold/20 rounded-2xl p-4 mb-5">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">⚠️</span>
-            <div>
-              <p className="font-semibold text-dark-green text-sm">Payment cancelled</p>
-              <p className="text-xs text-dark-green/50 mt-0.5">
-                Your order was created but payment was not completed.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mt-3">
-            <Button
-              size="sm"
-              onClick={() => handleRetryPayment(banner.orderId)}
-              disabled={retrying === banner.orderId}
-            >
-              {retrying === banner.orderId ? 'Redirecting...' : 'Try Again'}
-            </Button>
-            <button
-              onClick={() => setBanner(null)}
-              className="text-xs text-dark-green/40 hover:text-dark-green/60"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
 
       {orders.length === 0 ? (
         <div className="text-center py-16">
-          <p className="text-5xl mb-3">📦</p>
+          <p className="text-5xl mb-3">\uD83D\uDCE6</p>
           <p className="font-display font-semibold">No orders yet</p>
           <p className="text-sm text-dark-green/50 mt-1">
             Browse deals and reserve your first bag!
@@ -317,27 +223,29 @@ function OrdersContent() {
                 {activeOrders.map((order) => (
                   <div key={order.id}>
                     <OrderCard order={order} showPickupCode />
-                    <div className="mt-2 flex justify-center gap-2">
-                      {order.payment_status === 'pending' && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => handleRetryPayment(order.id)}
-                          disabled={retrying === order.id}
-                        >
-                          {retrying === order.id ? 'Redirecting...' : 'Complete Payment'}
-                        </Button>
+                    <div className="mt-2 flex justify-center gap-2 flex-wrap">
+                      {order.status === 'pending_fee_payment' && (
+                        <Link href={`/reserve/${order.id}`}>
+                          <Button size="sm">Pay reservation fee</Button>
+                        </Link>
                       )}
-                      <button
-                        onClick={() => {
-                          setCancelOrderId(order.id)
-                          setCancelReason('')
-                          setCancelError(null)
-                        }}
-                        className="px-4 py-2 text-xs font-medium text-error bg-error/5 hover:bg-error/10 rounded-xl transition-colors"
-                      >
-                        Cancel Order
-                      </button>
+                      {order.status === 'pending_verification' && (
+                        <Link href={`/reserve/${order.id}`}>
+                          <Button size="sm" variant="outline">View submission</Button>
+                        </Link>
+                      )}
+                      {order.status !== 'pending_verification' && (
+                        <button
+                          onClick={() => {
+                            setCancelOrderId(order.id)
+                            setCancelReason('')
+                            setCancelError(null)
+                          }}
+                          className="px-4 py-2 text-xs font-medium text-error bg-error/5 hover:bg-error/10 rounded-xl transition-colors"
+                        >
+                          Cancel Order
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -396,7 +304,7 @@ function OrdersContent() {
       >
         <div className="space-y-4">
           <p className="text-sm text-dark-green/60">
-            Are you sure you want to cancel this order? This action cannot be undone.
+            Are you sure you want to cancel this order? Reservation fees are non-refundable.
           </p>
 
           <div>

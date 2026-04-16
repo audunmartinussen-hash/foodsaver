@@ -8,8 +8,31 @@ import Button from '@/components/ui/Button'
 import Badge from '@/components/ui/Badge'
 import Modal from '@/components/ui/Modal'
 import Input from '@/components/ui/Input'
-import { formatPrice, calcDiscountPercent, calcDiscountedPrice, calcPlatformFee, calcStorePayout, formatPickupWindow, PRICING } from '@/lib/utils'
+import { formatPrice, calcDiscountPercent, formatPickupWindow, PRICING } from '@/lib/utils'
 import type { Listing, Store } from '@/lib/types'
+
+/**
+ * Merchant listings CRUD.
+ *
+ * Post-pivot rules (from FOODSAVER_PRELAUNCH_UPDATES.md):
+ * - Fixed-price, discounted items only. No surprise bags.
+ * - Minimum 20% discount from the original price — enforced in the form.
+ * - FoodSaver takes zero commission, so we show merchant a "you receive"
+ *   line equal to the buyer price × quantity. There is no platform-fee line.
+ * - Pickup window defaults to 17:00\u201319:00 (most CDO bakeries close ~7pm).
+ */
+
+// Preset discount tiers shown as quick-pick chips. Merchants can still type a
+// custom discounted_price by editing the slider later — for now these cover
+// the 3 points the prelaunch doc called out.
+const DISCOUNT_TIERS = [30, 50, 70] as const
+
+function calcDiscountedPrice(originalPrice: number, discountPercent: number): number {
+  if (!originalPrice || originalPrice <= 0) return 0
+  const raw = originalPrice * (1 - discountPercent / 100)
+  // Round to nearest peso — no centavo quirks on signage.
+  return Math.max(0, Math.round(raw))
+}
 
 export default function ManageListingsPage() {
   const { user } = useAuth()
@@ -18,13 +41,14 @@ export default function ManageListingsPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const supabase = createClient()
 
   // Form state
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [originalPrice, setOriginalPrice] = useState('')
-  const [discountTier, setDiscountTier] = useState(50)
+  const [discountTier, setDiscountTier] = useState<number>(50)
   const [quantity, setQuantity] = useState('5')
   const [pickupStart, setPickupStart] = useState('17:00')
   const [pickupEnd, setPickupEnd] = useState('19:00')
@@ -33,8 +57,8 @@ export default function ManageListingsPage() {
 
   const parsedOriginal = parseFloat(originalPrice) || 0
   const computedDiscountedPrice = calcDiscountedPrice(parsedOriginal, discountTier)
-  const computedPlatformFee = calcPlatformFee(computedDiscountedPrice, 1)
-  const computedStorePayout = calcStorePayout(computedDiscountedPrice, 1)
+  const computedMerchantReceives = computedDiscountedPrice * (parseInt(quantity) || 0)
+  const belowMinDiscount = discountTier < PRICING.MIN_DISCOUNT
 
   useEffect(() => {
     if (!user) return
@@ -61,13 +85,27 @@ export default function ManageListingsPage() {
     }
 
     fetchData()
-  }, [user])
+  }, [user, supabase])
 
   const handleCreate = async () => {
     if (!store) return
+
+    // Guard: minimum 20% discount enforced client-side. The server has no
+    // schema-level constraint for this (pricing is open-ended) so this is
+    // the only gate. Keep the copy explicit so merchants aren\u2019t confused.
+    if (belowMinDiscount) {
+      setFormError(`Discount must be at least ${PRICING.MIN_DISCOUNT}% for FoodSaver listings.`)
+      return
+    }
+    if (parsedOriginal <= 0) {
+      setFormError('Original price must be greater than zero.')
+      return
+    }
+
+    setFormError(null)
     setSaving(true)
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('listings')
       .insert({
         store_id: store.id,
@@ -116,6 +154,7 @@ export default function ManageListingsPage() {
     setPickupEnd('19:00')
     setIsRecurring(false)
     setRecurringDays([])
+    setFormError(null)
   }
 
   const activeListings = listings.filter(l => l.is_active)
@@ -137,25 +176,31 @@ export default function ManageListingsPage() {
         <div>
           <h2 className="font-display text-xl font-bold">Listings</h2>
           <p className="text-xs text-dark-green/45 mt-0.5">
-            {listings.length} total · {activeListings.length} active
+            {listings.length} total \u00B7 {activeListings.length} active
           </p>
         </div>
         <Button size="sm" onClick={() => setShowForm(true)}>
-          + New Listing
+          + New listing
         </Button>
       </div>
+
+      {store && !store.is_approved && (
+        <div className="bg-gold/10 border border-gold/25 rounded-2xl p-3 mb-4 text-xs text-dark-green/70 leading-relaxed">
+          Listings are created in draft until your store is approved. Buyers won&rsquo;t see them yet.
+        </div>
+      )}
 
       {listings.length === 0 ? (
         <Card className="p-8 text-center">
           <div className="w-16 h-16 rounded-2xl bg-olive/10 flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl">📦</span>
+            <span className="text-3xl">\uD83D\uDCE6</span>
           </div>
           <p className="font-display font-semibold text-lg">No listings yet</p>
           <p className="text-sm text-dark-green/50 mt-1 mb-4">
-            Create your first surprise bag to start saving food
+            Add a discounted item and set a pickup window. Buyers will see it in the feed.
           </p>
           <Button onClick={() => setShowForm(true)}>
-            Create First Listing
+            Create first listing
           </Button>
         </Card>
       ) : (
@@ -187,37 +232,37 @@ export default function ManageListingsPage() {
       )}
 
       {/* Add Listing Modal */}
-      <Modal isOpen={showForm} onClose={() => { setShowForm(false); resetForm() }} title="New Surprise Bag">
+      <Modal isOpen={showForm} onClose={() => { setShowForm(false); resetForm() }} title="New listing">
         <div className="space-y-4">
           <div>
             <Input
-              label="What are you selling?"
+              label="Item name"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Surprise Bread Bag"
+              placeholder="e.g. Pandesal + Ensaymada bundle"
             />
-            <p className="text-[11px] text-dark-green/35 mt-1">Give it a catchy name customers will love</p>
+            <p className="text-[11px] text-dark-green/35 mt-1">Be specific. Buyers should know exactly what they\u2019re getting.</p>
           </div>
           <Input
             label="Description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Assorted breads and pastries from today"
+            placeholder="e.g. 10 pcs pandesal + 2 ensaymada, made this morning"
           />
 
           <div className="bg-cream rounded-xl p-4">
             <p className="text-xs font-semibold text-dark-green/60 mb-3">Pricing</p>
             <Input
-              label="Original Price (₱)"
+              label="Original price (\u20B1)"
               type="number"
               value={originalPrice}
               onChange={(e) => setOriginalPrice(e.target.value)}
               placeholder="150"
             />
 
-            <p className="text-xs font-semibold text-dark-green/60 mt-4 mb-2">Discount Tier</p>
-            <div className="grid grid-cols-4 gap-2">
-              {PRICING.DISCOUNT_TIERS.map((tier) => (
+            <p className="text-xs font-semibold text-dark-green/60 mt-4 mb-2">Discount</p>
+            <div className="grid grid-cols-3 gap-2">
+              {DISCOUNT_TIERS.map((tier) => (
                 <button
                   key={tier}
                   type="button"
@@ -228,32 +273,30 @@ export default function ManageListingsPage() {
                       : 'bg-white text-dark-green/60 border-dark-green/10 hover:border-gold/40'
                   }`}
                 >
-                  {tier}%
+                  {tier}% off
                 </button>
               ))}
             </div>
+            <p className="text-[11px] text-dark-green/40 mt-2">
+              Minimum {PRICING.MIN_DISCOUNT}% off — below that, listings aren&rsquo;t accepted.
+            </p>
 
             {parsedOriginal > 0 && (
               <div className="mt-4 space-y-2">
                 <div className="bg-white rounded-xl p-3 text-center">
-                  <p className="text-[11px] text-dark-green/40 mb-0.5">Customers pay</p>
+                  <p className="text-[11px] text-dark-green/40 mb-0.5">Buyer pays you in cash</p>
                   <p className="text-2xl font-bold text-gold">{formatPrice(computedDiscountedPrice)}</p>
                   <Badge variant="gold" className="mt-1">{discountTier}% OFF</Badge>
                 </div>
-                <div className="bg-white/60 rounded-lg px-3 py-2 flex items-center justify-between text-xs">
-                  <span className="text-dark-green/50">FoodSaver fee (15%)</span>
-                  <span className="font-semibold text-dark-green/70">{formatPrice(computedPlatformFee)}</span>
-                </div>
-                <div className="bg-white/60 rounded-lg px-3 py-2 flex items-center justify-between text-xs">
-                  <span className="text-dark-green/50">You receive</span>
-                  <span className="font-bold text-dark-green">{formatPrice(computedStorePayout)}</span>
+                <div className="bg-white/60 rounded-lg px-3 py-2 text-[11px] text-dark-green/55 leading-relaxed">
+                  You keep 100% of the cash at pickup. FoodSaver bills buyers a separate \u20B120 reservation fee via GCash &mdash; that never touches you.
                 </div>
               </div>
             )}
           </div>
 
           <Input
-            label="How many bags available?"
+            label="Quantity available"
             type="number"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
@@ -261,7 +304,7 @@ export default function ManageListingsPage() {
           />
 
           <div className="bg-cream rounded-xl p-4">
-            <p className="text-xs font-semibold text-dark-green/60 mb-3">Pickup Window</p>
+            <p className="text-xs font-semibold text-dark-green/60 mb-3">Pickup window</p>
             <div className="grid grid-cols-2 gap-3">
               <Input
                 label="From"
@@ -282,7 +325,7 @@ export default function ManageListingsPage() {
           <div className="bg-cream rounded-xl p-4">
             <div className="flex items-center justify-between mb-1">
               <div>
-                <p className="text-xs font-semibold text-dark-green/60">Recurring Listing</p>
+                <p className="text-xs font-semibold text-dark-green/60">Recurring listing</p>
                 <p className="text-[11px] text-dark-green/35 mt-0.5">Auto-renew on selected days each week</p>
               </div>
               <button
@@ -333,13 +376,25 @@ export default function ManageListingsPage() {
             )}
           </div>
 
+          {formError && (
+            <div className="bg-error/10 text-error text-sm rounded-xl p-3 text-center">
+              {formError}
+            </div>
+          )}
+
+          {parsedOriginal > 0 && parseInt(quantity) > 0 && (
+            <div className="text-[11px] text-dark-green/50 text-center">
+              If all {quantity} sell, you collect {formatPrice(computedMerchantReceives)} in cash at pickup.
+            </div>
+          )}
+
           <Button
             onClick={handleCreate}
-            disabled={saving || !title || !originalPrice || parsedOriginal <= 0}
+            disabled={saving || !title || !originalPrice || parsedOriginal <= 0 || belowMinDiscount}
             className="w-full"
             size="lg"
           >
-            {saving ? 'Creating...' : 'Publish Listing'}
+            {saving ? 'Creating\u2026' : 'Publish listing'}
           </Button>
         </div>
       </Modal>
@@ -411,11 +466,11 @@ function ListingCard({ listing, onToggle }: { listing: Listing; onToggle: (l: Li
       {/* Pickup Info */}
       <div className="flex items-center gap-4 text-xs text-dark-green/45">
         <span className="flex items-center gap-1">
-          🕐 {formatPickupWindow(listing.pickup_start, listing.pickup_end)}
+          \uD83D\uDD50 {formatPickupWindow(listing.pickup_start, listing.pickup_end)}
         </span>
         {listing.available_date && (
           <span className="flex items-center gap-1">
-            📅 {new Date(listing.available_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+            \uD83D\uDCC5 {new Date(listing.available_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
           </span>
         )}
       </div>

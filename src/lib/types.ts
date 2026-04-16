@@ -5,6 +5,9 @@ export interface Profile {
   role: 'consumer' | 'business' | 'admin'
   avatar_url: string | null
   created_at: string
+  no_show_count_30d: number
+  account_paused_at: string | null
+  account_paused_reason: string | null
 }
 
 export interface Store {
@@ -58,6 +61,27 @@ export interface Listing {
   store?: Store
 }
 
+/**
+ * Order / reservation status after the April pivot.
+ *
+ * - pending_fee_payment: buyer created the reservation, hasn't uploaded GCash proof yet
+ * - pending_verification: buyer uploaded proof, admin has not yet confirmed
+ * - confirmed: admin confirmed the proof; pickup code is live
+ * - picked_up: merchant marked it picked up
+ * - cancelled: buyer or admin cancelled before pickup
+ * - no_show: pickup window passed with no pickup
+ *
+ * `reserved` is kept for historical compatibility with records made before the pivot.
+ */
+export type OrderStatus =
+  | 'pending_fee_payment'
+  | 'pending_verification'
+  | 'reserved'
+  | 'confirmed'
+  | 'picked_up'
+  | 'cancelled'
+  | 'no_show'
+
 export interface Order {
   id: string
   listing_id: string
@@ -65,7 +89,7 @@ export interface Order {
   store_id: string
   quantity: number
   total_price: number
-  status: 'reserved' | 'confirmed' | 'picked_up' | 'cancelled' | 'no_show'
+  status: OrderStatus
   pickup_code: string | null
   payment_method: 'cash' | 'gcash' | null
   platform_fee: number
@@ -76,6 +100,27 @@ export interface Order {
   cancelled_at: string | null
   cancelled_reason: string | null
   refund_status: string | null
-  listing?: Listing
-  store?: Store
+  reservation_fee_php: number
+  reservation_fee_paid_at: string | null
+  reservation_fee_proof_url: string | null
+  reservation_fee_verified_at: string | null
+  reservation_fee_verified_by: string | null
+  reservation_fee_rejected_reason: string | null
+  no_show_at: string | null
+  fee_payment_expires_at: string | null
+  // Joined relations are nullable — Supabase returns `null` when a join misses
+  // (e.g. listing was hard-deleted) and admin/merchant pages narrow to subsets.
+  listing?: Listing | null
+  store?: Store | null
+  consumer?: Profile | null
+}
+
+export interface PlatformConfig {
+  reservation_fee_php: number
+  gcash_account_name: string
+  gcash_account_number: string
+  gcash_qr_image_url: string
+  launch_city: string
+  support_messenger_url: string
+  no_show_pause_threshold: number
 }

@@ -2,25 +2,29 @@
 
 import Card from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
-import { formatPrice, formatPickupWindow } from '@/lib/utils'
-import type { Order } from '@/lib/types'
+import { formatPrice, formatPhpShort, formatPickupWindow } from '@/lib/utils'
+import type { Order, OrderStatus } from '@/lib/types'
 
 interface OrderCardProps {
   order: Order
   showPickupCode?: boolean
 }
 
-const statusConfig = {
-  reserved: { label: 'Reserved', variant: 'gold' as const },
-  confirmed: { label: 'Confirmed', variant: 'olive' as const },
-  picked_up: { label: 'Picked Up', variant: 'success' as const },
-  cancelled: { label: 'Cancelled', variant: 'error' as const },
-  no_show: { label: 'No Show', variant: 'error' as const },
+const statusConfig: Record<OrderStatus, { label: string; variant: 'gold' | 'olive' | 'success' | 'error' }> = {
+  pending_fee_payment: { label: 'Pay fee', variant: 'gold' },
+  pending_verification: { label: 'Verifying payment', variant: 'gold' },
+  reserved: { label: 'Reserved', variant: 'gold' },
+  confirmed: { label: 'Confirmed', variant: 'olive' },
+  picked_up: { label: 'Picked Up', variant: 'success' },
+  cancelled: { label: 'Cancelled', variant: 'error' },
+  no_show: { label: 'No Show', variant: 'error' },
 }
 
 export default function OrderCard({ order, showPickupCode = false }: OrderCardProps) {
-  const status = statusConfig[order.status]
-  const isActive = order.status === 'reserved' || order.status === 'confirmed'
+  const status = statusConfig[order.status] ?? statusConfig.reserved
+  const isActive = order.status === 'confirmed' || order.status === 'reserved'
+  const awaitingBuyerAction = order.status === 'pending_fee_payment'
+  const awaitingVerification = order.status === 'pending_verification'
 
   return (
     <Card className="p-4">
@@ -35,15 +39,6 @@ export default function OrderCard({ order, showPickupCode = false }: OrderCardPr
         </div>
         <div className="flex flex-col items-end gap-1">
           <Badge variant={status.variant}>{status.label}</Badge>
-          {order.payment_status === 'paid' && (
-            <span className="text-[10px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full">Paid</span>
-          )}
-          {order.payment_status === 'pending' && (
-            <span className="text-[10px] font-semibold text-gold bg-gold/10 px-2 py-0.5 rounded-full">Payment pending</span>
-          )}
-          {order.payment_status === 'failed' && (
-            <span className="text-[10px] font-semibold text-error bg-error/10 px-2 py-0.5 rounded-full">Payment failed</span>
-          )}
         </div>
       </div>
 
@@ -56,6 +51,18 @@ export default function OrderCard({ order, showPickupCode = false }: OrderCardPr
         <p className="text-xs text-dark-green/50 mb-2">
           Pickup: {formatPickupWindow(order.listing.pickup_start, order.listing.pickup_end)}
         </p>
+      )}
+
+      {awaitingBuyerAction && (
+        <div className="bg-gold/10 rounded-xl p-3 text-xs text-dark-green/70 mb-1">
+          Reservation fee of <strong>{formatPhpShort(order.reservation_fee_php)}</strong> not paid yet. Tap \u201CPay fee\u201D to submit your GCash receipt.
+        </div>
+      )}
+
+      {awaitingVerification && (
+        <div className="bg-gold/10 rounded-xl p-3 text-xs text-dark-green/70 mb-1">
+          We\u2019re verifying your GCash payment. You\u2019ll get an SMS once confirmed.
+        </div>
       )}
 
       {showPickupCode && isActive && order.pickup_code && (

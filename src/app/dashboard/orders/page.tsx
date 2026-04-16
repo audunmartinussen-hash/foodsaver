@@ -8,158 +8,164 @@ import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
 import { formatPrice, formatPickupWindow } from '@/lib/utils'
-import type { Order, Store } from '@/lib/types'
+import { track } from '@/lib/analytics'
+import type { Order, Profile, Store } from '@/lib/types'
+
+/**
+ * Merchant-facing orders view.
+ *
+ * Post-pivot the merchant no longer collects online payment — buyers pay
+ * cash at pickup. The merchant\u2019s core action is a **one-tap Mark Picked
+ * Up** button; they verify the pickup code visually against what the buyer
+ * shows. Mark No-Show is still available but is usually auto-handled by the
+ * `/api/admin/no-show-sweep` cron.
+ */
 
 const filterTabs = [
-  { key: 'all', label: 'All' },
-  { key: 'reserved', label: 'Pending' },
+  { key: 'today', label: 'Today' },
+  { key: 'confirmed', label: 'Upcoming' },
   { key: 'picked_up', label: 'Completed' },
+  { key: 'no_show', label: 'No-show' },
   { key: 'cancelled', label: 'Cancelled' },
-  { key: 'no_show', label: 'No Show' },
 ]
 
 const statusConfig: Record<string, { label: string; variant: 'gold' | 'olive' | 'success' | 'error'; icon: string }> = {
-  reserved: { label: 'Awaiting Pickup', variant: 'gold', icon: '🕐' },
-  confirmed: { label: 'Confirmed', variant: 'olive', icon: '📋' },
-  picked_up: { label: 'Completed', variant: 'success', icon: '✅' },
-  cancelled: { label: 'Cancelled', variant: 'error', icon: '❌' },
-  no_show: { label: 'No Show', variant: 'error', icon: '🚫' },
+  pending_fee_payment: { label: 'Fee pending', variant: 'gold', icon: '\u23F3' },
+  pending_verification: { label: 'Verifying', variant: 'gold', icon: '\u23F3' },
+  reserved: { label: 'Reserved', variant: 'gold', icon: '\uD83D\uDD50' },
+  confirmed: { label: 'Confirmed', variant: 'olive', icon: '\uD83D\uDCCB' },
+  picked_up: { label: 'Picked up', variant: 'success', icon: '\u2705' },
+  cancelled: { label: 'Cancelled', variant: 'error', icon: '\u274C' },
+  no_show: { label: 'No show', variant: 'error', icon: '\uD83D\uDEAB' },
 }
+
+type OrderWithConsumer = Order & { consumer?: Pick<Profile, 'id' | 'full_name' | 'phone'> | null }
 
 export default function StoreOrdersPage() {
   const { user } = useAuth()
   const [store, setStore] = useState<Store | null>(null)
-  const [orders, setOrders] = useState<Order[]>([])
+  const [orders, setOrders] = useState<OrderWithConsumer[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<string>('all')
-  const [verifyCode, setVerifyCode] = useState<Record<string, string>>({})
-  const [verifyError, setVerifyError] = useState<Record<string, boolean>>({})
-  const [verifying, setVerifying] = useState<Record<string, boolean>>({})
-  const [markingNoShow, setMarkingNoShow] = useState<Record<string, boolean>>({})
+  const [filter, setFilter] = useState<string>('today')
+  const [markingId, setMarkingId] = useState<string | null>(null)
+  const [markError, setMarkError] = useState<string | null>(null)
+  const [noShowId, setNoShowId] = useState<string | null>(null)
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelling, setCancelling] = useState(false)
-  const [cancelError, setCancelError] = useState<string | null>(null)
   const supabase = createClient()
 
-  useEffect(() => {
+  const refetch = async () => {
     if (!user) return
+    const { data: storeData } = await supabase
+      .from('stores')
+      .select('*')
+      .eq('owner_id', user.id)
+      .single()
+    if (!storeData) { setLoading(false); return }
+    setStore(storeData)
 
-    const fetchData = async () => {
-      const { data: storeData } = await supabase
-        .from('stores')
-        .select('*')
-        .eq('owner_id', user.id)
-        .single()
-
-      if (storeData) {
-        setStore(storeData)
-
-        const { data: ordersData } = await supabase
-          .from('orders')
-          .select('*, listing:listings(*)')
-          .eq('store_id', storeData.id)
-          .order('reserved_at', { ascending: false })
-
-        setOrders(ordersData ?? [])
-      }
-      setLoading(false)
-    }
-
-    fetchData()
-  }, [user])
-
-  const markPickedUp = async (order: Order) => {
-    const code = verifyCode[order.id]
-    if (code !== order.pickup_code) {
-      setVerifyError({ ...verifyError, [order.id]: true })
-      setTimeout(() => setVerifyError({ ...verifyError, [order.id]: false }), 2000)
-      return
-    }
-
-    setVerifying({ ...verifying, [order.id]: true })
-
-    const { error } = await supabase
+    const { data } = await supabase
       .from('orders')
-      .update({
-        status: 'picked_up',
-        picked_up_at: new Date().toISOString(),
-      })
-      .eq('id', order.id)
-
-    if (!error) {
-      setOrders(orders.map(o =>
-        o.id === order.id ? { ...o, status: 'picked_up', picked_up_at: new Date().toISOString() } : o
-      ))
-      setVerifyCode({ ...verifyCode, [order.id]: '' })
-    }
-    setVerifying({ ...verifying, [order.id]: false })
+      .select('*, listing:listings(*), consumer:profiles!orders_consumer_id_fkey(id, full_name, phone)')
+      .eq('store_id', storeData.id)
+      .order('reserved_at', { ascending: false })
+      .limit(200)
+    setOrders((data as OrderWithConsumer[]) ?? [])
+    setLoading(false)
   }
 
-  const markNoShow = async (order: Order) => {
-    setMarkingNoShow({ ...markingNoShow, [order.id]: true })
+  // refetch() is async; any setState inside happens after the awaited Supabase
+  // calls, which is fine. The lint rule flags the named call conservatively.
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  useEffect(() => { refetch() }, [user])
 
+  const markPickedUp = async (order: OrderWithConsumer) => {
+    setMarkingId(order.id)
+    setMarkError(null)
+    const res = await fetch(`/api/orders/${order.id}/mark-picked-up`, { method: 'POST' })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setMarkError(body?.error || 'Failed to mark picked up')
+    } else {
+      track('pickup_completed', { order_id: order.id, store_id: order.store_id })
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'picked_up', picked_up_at: new Date().toISOString() } : o))
+    }
+    setMarkingId(null)
+  }
+
+  const markNoShow = async (order: OrderWithConsumer) => {
+    setNoShowId(order.id)
     const { error } = await supabase
       .from('orders')
-      .update({ status: 'no_show' })
+      .update({ status: 'no_show', no_show_at: new Date().toISOString() })
       .eq('id', order.id)
-
     if (!error) {
-      setOrders(orders.map(o =>
-        o.id === order.id ? { ...o, status: 'no_show' } : o
-      ))
+      track('no_show_recorded', { order_id: order.id, store_id: order.store_id, source: 'merchant' })
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'no_show' } : o))
     }
-    setMarkingNoShow({ ...markingNoShow, [order.id]: false })
+    setNoShowId(null)
   }
 
   const handleCancelOrder = async () => {
     if (!cancelOrderId || !cancelReason.trim()) return
-
     setCancelling(true)
-    setCancelError(null)
-
     const { error } = await supabase
       .from('orders')
-      .update({
-        status: 'cancelled',
-        cancelled_at: new Date().toISOString(),
-        cancelled_reason: cancelReason.trim(),
-      })
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_reason: cancelReason.trim() })
       .eq('id', cancelOrderId)
-
-    if (error) {
-      setCancelError('Failed to cancel order. Please try again.')
-      setCancelling(false)
-      return
+    if (!error) {
+      setOrders(prev => prev.map(o => o.id === cancelOrderId ? { ...o, status: 'cancelled', cancelled_reason: cancelReason.trim() } : o))
     }
-
-    setOrders(orders.map(o =>
-      o.id === cancelOrderId ? { ...o, status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_reason: cancelReason.trim() } : o
-    ))
     setCancelOrderId(null)
     setCancelReason('')
     setCancelling(false)
   }
 
-  const filteredOrders = filter === 'all'
-    ? orders
+  const today = new Date().toISOString().split('T')[0]
+  const isToday = (o: OrderWithConsumer) => o.listing?.available_date === today
+  const todayReservations = orders.filter(o =>
+    (o.status === 'confirmed' || o.status === 'reserved') && isToday(o)
+  )
+
+  const filteredOrders = filter === 'today'
+    ? todayReservations
     : orders.filter(o => o.status === filter)
 
   const orderCounts = {
-    all: orders.length,
-    reserved: orders.filter(o => o.status === 'reserved').length,
+    today: todayReservations.length,
+    confirmed: orders.filter(o => o.status === 'confirmed').length,
     picked_up: orders.filter(o => o.status === 'picked_up').length,
-    cancelled: orders.filter(o => o.status === 'cancelled').length,
     no_show: orders.filter(o => o.status === 'no_show').length,
+    cancelled: orders.filter(o => o.status === 'cancelled').length,
   }
 
   if (loading) {
     return (
       <div className="space-y-3">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-32 bg-white rounded-2xl animate-pulse" />
-        ))}
+        {[...Array(4)].map((_, i) => <div key={i} className="h-32 bg-white rounded-2xl animate-pulse" />)}
       </div>
+    )
+  }
+
+  if (!store) {
+    return (
+      <Card className="p-6 text-center">
+        <p className="text-3xl mb-2">\uD83C\uDFEA</p>
+        <p className="font-semibold">No store yet</p>
+        <p className="text-sm text-dark-green/50 mt-1">Create a store on the dashboard to receive orders.</p>
+      </Card>
+    )
+  }
+
+  if (!store.is_approved) {
+    return (
+      <Card className="p-5">
+        <p className="font-semibold text-sm text-dark-green">Store under review</p>
+        <p className="text-xs text-dark-green/60 mt-1 leading-relaxed">
+          We\u2019ll flip the approval flag once the paper merchant agreement is signed. Orders will appear here after approval.
+        </p>
+      </Card>
     )
   }
 
@@ -168,11 +174,11 @@ export default function StoreOrdersPage() {
       <div className="mb-4">
         <h2 className="font-display text-xl font-bold">Orders</h2>
         <p className="text-xs text-dark-green/45 mt-0.5">
-          {orders.length} total · {orderCounts.reserved} awaiting pickup
+          {todayReservations.length} reservation{todayReservations.length === 1 ? '' : 's'} today
         </p>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Tabs */}
       <div className="flex gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1">
         {filterTabs.map((tab) => {
           const count = orderCounts[tab.key as keyof typeof orderCounts] ?? 0
@@ -199,13 +205,19 @@ export default function StoreOrdersPage() {
         })}
       </div>
 
+      {markError && (
+        <div className="bg-error/10 text-error text-sm rounded-xl p-3 text-center mb-3">{markError}</div>
+      )}
+
       {filteredOrders.length === 0 ? (
         <Card className="p-8 text-center">
-          <p className="text-3xl mb-3">🧾</p>
-          <p className="font-semibold text-dark-green">No orders here</p>
+          <p className="text-3xl mb-3">\uD83E\uDDFE</p>
+          <p className="font-semibold text-dark-green">
+            {filter === 'today' ? 'No reservations today' : 'No orders here'}
+          </p>
           <p className="text-sm text-dark-green/40 mt-1">
-            {filter === 'all'
-              ? 'Orders will appear when customers reserve your listings'
+            {filter === 'today'
+              ? 'New reservations will appear as soon as admin confirms the buyer\u2019s fee.'
               : `No ${filter.replace('_', ' ')} orders`}
           </p>
         </Card>
@@ -213,18 +225,16 @@ export default function StoreOrdersPage() {
         <div className="space-y-3">
           {filteredOrders.map((order) => {
             const status = statusConfig[order.status] ?? statusConfig.reserved
-            const isActive = order.status === 'reserved' || order.status === 'confirmed'
-            const hasError = verifyError[order.id]
+            const actionable = order.status === 'confirmed' || order.status === 'reserved'
 
             return (
-              <Card key={order.id} className={`overflow-hidden ${isActive ? 'border-gold/20' : ''}`}>
-                {/* Order Header */}
+              <Card key={order.id} className={`overflow-hidden ${actionable ? 'border-gold/20' : ''}`}>
                 <div className="p-4 pb-3">
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-start gap-3 min-w-0">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                         order.status === 'picked_up' ? 'bg-success/10' :
-                        order.status === 'reserved' ? 'bg-gold/10' :
+                        order.status === 'reserved' || order.status === 'confirmed' ? 'bg-gold/10' :
                         order.status === 'cancelled' || order.status === 'no_show' ? 'bg-error/10' :
                         'bg-olive/10'
                       }`}>
@@ -235,114 +245,55 @@ export default function StoreOrdersPage() {
                           {order.listing?.title ?? 'Order'}
                         </h3>
                         <p className="text-xs text-dark-green/45 mt-0.5">
-                          {order.quantity} {order.quantity === 1 ? 'bag' : 'bags'} · {formatPrice(order.total_price)}
+                          {order.quantity} {order.quantity === 1 ? 'bag' : 'bags'} \u00B7 {formatPrice(order.total_price)} cash
+                        </p>
+                        <p className="text-[11px] text-dark-green/40 mt-0.5 truncate">
+                          Buyer: {order.consumer?.full_name?.split(' ')[0] ?? 'Unknown'}
+                          {order.consumer?.phone ? ` \u00B7 ${order.consumer.phone}` : ''}
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <Badge variant={status.variant}>{status.label}</Badge>
-                      {order.payment_status === 'paid' && (
-                        <span className="text-[10px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full">Paid</span>
-                      )}
-                      {order.payment_status === 'pending' && (
-                        <span className="text-[10px] font-semibold text-gold bg-gold/10 px-2 py-0.5 rounded-full">Unpaid</span>
-                      )}
-                      {order.payment_status === 'failed' && (
-                        <span className="text-[10px] font-semibold text-error bg-error/10 px-2 py-0.5 rounded-full">Failed</span>
-                      )}
-                    </div>
+                    <Badge variant={status.variant}>{status.label}</Badge>
                   </div>
 
-                  {/* Order Details */}
-                  <div className="flex items-center gap-4 text-[11px] text-dark-green/35 ml-13">
-                    {order.listing && (
-                      <span>🕐 {formatPickupWindow(order.listing.pickup_start, order.listing.pickup_end)}</span>
-                    )}
-                    <span>
-                      📅 {new Date(order.reserved_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-
-                  {order.status === 'picked_up' && order.picked_up_at && (
-                    <p className="text-[11px] text-success/70 mt-1.5 ml-13">
-                      Picked up {new Date(order.picked_up_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {order.listing && (
+                    <p className="text-[11px] text-dark-green/40">
+                      Pickup {formatPickupWindow(order.listing.pickup_start, order.listing.pickup_end)}
                     </p>
+                  )}
+
+                  {actionable && order.pickup_code && (
+                    <div className="mt-3 bg-cream rounded-xl py-3 text-center">
+                      <p className="text-[10px] uppercase tracking-wider text-dark-green/45">Pickup code</p>
+                      <p className="font-display text-3xl font-bold tracking-[0.3em] text-dark-green">{order.pickup_code}</p>
+                      <p className="text-[10px] text-dark-green/40 mt-0.5">Buyer will show this</p>
+                    </div>
                   )}
                 </div>
 
-                {/* Unpaid warning for active orders */}
-                {isActive && order.payment_status !== 'paid' && (
-                  <div className="bg-gold/5 border-t border-gold/10 px-4 py-3">
-                    <p className="text-xs text-gold font-medium text-center">
-                      Awaiting payment — do not hand over items until payment is confirmed
-                    </p>
-                    <button
-                      onClick={() => {
-                        setCancelOrderId(order.id)
-                        setCancelReason('')
-                        setCancelError(null)
-                      }}
-                      className="mt-2 text-[11px] text-error/60 hover:text-error transition-colors w-full text-center"
+                {actionable && (
+                  <div className="bg-cream/40 border-t border-dark-green/5 px-4 py-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => markPickedUp(order)}
+                      disabled={markingId === order.id}
+                      className="flex-1 min-w-[120px]"
                     >
-                      Cancel Order
+                      {markingId === order.id ? 'Marking\u2026' : 'Mark picked up'}
+                    </Button>
+                    <button
+                      onClick={() => markNoShow(order)}
+                      disabled={noShowId === order.id}
+                      className="text-[11px] text-dark-green/50 hover:text-error underline"
+                    >
+                      {noShowId === order.id ? 'Marking\u2026' : 'No-show'}
                     </button>
-                  </div>
-                )}
-
-                {/* Pickup Verification Section — only for paid orders */}
-                {isActive && order.payment_status === 'paid' && (
-                  <div className="bg-cream/50 border-t border-dark-green/5 px-4 py-3">
-                    <p className="text-xs font-medium text-dark-green/60 mb-2.5">
-                      Verify Pickup Code
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <input
-                          placeholder="Enter 4-digit code"
-                          value={verifyCode[order.id] ?? ''}
-                          onChange={(e) => {
-                            setVerifyCode({ ...verifyCode, [order.id]: e.target.value.toUpperCase() })
-                            setVerifyError({ ...verifyError, [order.id]: false })
-                          }}
-                          className={`w-full px-3 py-2.5 rounded-xl border text-sm font-mono tracking-widest text-center transition-colors ${
-                            hasError
-                              ? 'border-error bg-error/5 text-error'
-                              : 'border-dark-green/15 bg-white'
-                          }`}
-                          maxLength={4}
-                        />
-                        {hasError && (
-                          <p className="text-[10px] text-error mt-1 text-center">Wrong code. Try again.</p>
-                        )}
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => markPickedUp(order)}
-                        disabled={!verifyCode[order.id] || verifying[order.id]}
-                        className="whitespace-nowrap"
-                      >
-                        {verifying[order.id] ? '...' : 'Confirm'}
-                      </Button>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <button
-                        onClick={() => markNoShow(order)}
-                        disabled={markingNoShow[order.id]}
-                        className="text-[11px] text-dark-green/35 hover:text-error transition-colors"
-                      >
-                        {markingNoShow[order.id] ? 'Marking...' : 'Mark as no-show'}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCancelOrderId(order.id)
-                          setCancelReason('')
-                          setCancelError(null)
-                        }}
-                        className="text-[11px] text-error/60 hover:text-error transition-colors"
-                      >
-                        Cancel Order
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => { setCancelOrderId(order.id); setCancelReason('') }}
+                      className="text-[11px] text-error/60 hover:text-error underline"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 )}
               </Card>
@@ -351,57 +302,35 @@ export default function StoreOrdersPage() {
         </div>
       )}
 
-      {/* Cancel Order Modal */}
       <Modal
         isOpen={!!cancelOrderId}
-        onClose={() => {
-          setCancelOrderId(null)
-          setCancelReason('')
-          setCancelError(null)
-        }}
-        title="Cancel Order"
+        onClose={() => { setCancelOrderId(null); setCancelReason('') }}
+        title="Cancel order"
       >
         <div className="space-y-4">
           <p className="text-sm text-dark-green/60">
-            Are you sure you want to cancel this order? This action cannot be undone.
+            The buyer will be notified. Their reservation fee is non-refundable unless you\u2019re cancelling because the item is no longer available — in which case, email the founders to refund manually.
           </p>
-
-          <div>
-            <label className="text-sm font-medium text-dark-green block mb-1.5">
-              Reason for cancellation
-            </label>
-            <textarea
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="Please provide a reason for cancellation..."
-              className="w-full px-3 py-2.5 rounded-xl border border-dark-green/15 bg-white text-sm resize-none focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-              rows={3}
-            />
-          </div>
-
-          {cancelError && (
-            <div className="bg-error/10 text-error text-sm rounded-xl p-3 text-center">
-              {cancelError}
-            </div>
-          )}
-
+          <textarea
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="Reason (e.g. ran out of stock)"
+            className="w-full px-3 py-2.5 rounded-xl border border-dark-green/15 bg-white text-sm resize-none focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            rows={3}
+          />
           <div className="flex gap-3">
             <button
-              onClick={() => {
-                setCancelOrderId(null)
-                setCancelReason('')
-                setCancelError(null)
-              }}
+              onClick={() => { setCancelOrderId(null); setCancelReason('') }}
               className="flex-1 px-4 py-3 text-sm font-medium text-dark-green/60 bg-dark-green/5 rounded-xl hover:bg-dark-green/10 transition-colors"
             >
-              Keep Order
+              Keep order
             </button>
             <button
               onClick={handleCancelOrder}
               disabled={cancelling || !cancelReason.trim()}
-              className="flex-1 px-4 py-3 text-sm font-medium text-white bg-error rounded-xl hover:bg-error/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 px-4 py-3 text-sm font-medium text-white bg-error rounded-xl hover:bg-error/90 transition-colors disabled:opacity-50"
             >
-              {cancelling ? 'Cancelling...' : 'Cancel Order'}
+              {cancelling ? 'Cancelling\u2026' : 'Cancel order'}
             </button>
           </div>
         </div>

@@ -1,18 +1,21 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import ListingCard from '@/components/ListingCard'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
 import { useAuth } from '@/hooks/useAuth'
-import { formatPrice, calcDiscountPercent, calcPlatformFee, formatPickupWindow, generatePickupCode } from '@/lib/utils'
-import type { Store, Listing, Review } from '@/lib/types'
+import { formatPrice, formatPhpShort, calcDiscountPercent, formatPickupWindow } from '@/lib/utils'
+import { fetchPlatformConfig } from '@/lib/platformConfig'
+import { track } from '@/lib/analytics'
+import type { Store, Listing, Review, PlatformConfig } from '@/lib/types'
 
 export default function StorePage() {
   const { id } = useParams()
+  const router = useRouter()
   const { user } = useAuth()
   const [store, setStore] = useState<Store | null>(null)
   const [listings, setListings] = useState<Listing[]>([])
@@ -22,7 +25,10 @@ export default function StorePage() {
   const [quantity, setQuantity] = useState(1)
   const [reserving, setReserving] = useState(false)
   const [reserveError, setReserveError] = useState<string | null>(null)
+  const [config, setConfig] = useState<PlatformConfig | null>(null)
   const supabase = createClient()
+
+  useEffect(() => { fetchPlatformConfig().then(setConfig) }, [])
 
   useEffect(() => {
     const fetchStore = async () => {
@@ -59,62 +65,54 @@ export default function StorePage() {
     setReserving(true)
     setReserveError(null)
 
-    const code = generatePickupCode()
-    const platformFee = calcPlatformFee(selectedListing.discounted_price, quantity)
-    const totalPrice = selectedListing.discounted_price * quantity
+    // Guard: refetch live quantity to avoid overselling under concurrent reservations.
+    const { data: liveListing } = await supabase
+      .from('listings')
+      .select('quantity_available, quantity_sold, is_active')
+      .eq('id', selectedListing.id)
+      .single()
 
-    // 1. Create order with pending payment
+    const remaining = (liveListing?.quantity_available ?? 0) - (liveListing?.quantity_sold ?? 0)
+    if (!liveListing?.is_active || remaining < quantity) {
+      setReserveError('Sorry, someone just grabbed the last one.')
+      setReserving(false)
+      return
+    }
+
+    const feePhp = config?.reservation_fee_php ?? 20
+    const totalPrice = selectedListing.discounted_price * quantity
+    // 30-minute GCash fee window; no-show-sweep cron expires stale pending orders.
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+
     const { data: order, error } = await supabase.from('orders').insert({
       listing_id: selectedListing.id,
       consumer_id: user.id,
       store_id: store.id,
       quantity,
       total_price: totalPrice,
-      pickup_code: code,
-      payment_method: null,
-      platform_fee: platformFee,
+      status: 'pending_fee_payment',
+      payment_method: 'cash',
       payment_status: 'pending',
+      platform_fee: 0,
+      reservation_fee_php: feePhp,
+      fee_payment_expires_at: expiresAt,
     }).select().single()
 
     if (error || !order) {
-      setReserveError('Failed to create order. Please try again.')
+      setReserveError('Failed to create reservation. Please try again.')
       setReserving(false)
       return
     }
 
-    // 2. Update listing quantity
+    // Optimistic inventory hold — no-show sweep releases it if the buyer doesn\u2019t pay in time.
     await supabase
       .from('listings')
-      .update({ quantity_sold: selectedListing.quantity_sold + quantity })
+      .update({ quantity_sold: (liveListing.quantity_sold ?? 0) + quantity })
       .eq('id', selectedListing.id)
 
-    // 3. Create PayMongo checkout session
-    try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: order.id,
-          listingTitle: selectedListing.title,
-          amount: totalPrice,
-          quantity,
-        }),
-      })
+    track('reservation_initiated', { listing_id: selectedListing.id, order_id: order.id, quantity })
 
-      const data = await res.json()
-
-      if (!res.ok || !data.checkoutUrl) {
-        setReserveError('Failed to start payment. Please try again from your orders.')
-        setReserving(false)
-        return
-      }
-
-      // 4. Redirect to PayMongo checkout
-      window.location.href = data.checkoutUrl
-    } catch {
-      setReserveError('Failed to connect to payment gateway. Please try again.')
-      setReserving(false)
-    }
+    router.push(`/reserve/${order.id}`)
   }
 
   if (loading) {
@@ -307,11 +305,22 @@ export default function StorePage() {
               </div>
             </div>
 
-            <div className="border-t border-dark-green/10 pt-3 flex items-center justify-between">
-              <span className="font-medium">Total</span>
-              <span className="text-xl font-bold text-gold">
-                {formatPrice(selectedListing.discounted_price * quantity)}
-              </span>
+            <div className="border-t border-dark-green/10 pt-3 space-y-1">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-dark-green/60">Cash to store at pickup</span>
+                <span className="font-semibold text-dark-green">
+                  {formatPrice(selectedListing.discounted_price * quantity)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-dark-green/60">Reservation fee (GCash)</span>
+                <span className="font-semibold text-dark-green">
+                  {formatPhpShort(config?.reservation_fee_php ?? 20)}
+                </span>
+              </div>
+              <p className="text-[11px] text-dark-green/45 pt-1">
+                The reservation fee goes to FoodSaver and is non-refundable if you no-show.
+              </p>
             </div>
 
             {reserveError && (
@@ -321,11 +330,11 @@ export default function StorePage() {
             )}
 
             <Button onClick={handleReserve} disabled={reserving} className="w-full" size="lg">
-              {reserving ? 'Processing...' : 'Reserve & Pay Online'}
+              {reserving ? 'Creating reservation\u2026' : `Continue to pay ${formatPhpShort(config?.reservation_fee_php ?? 20)} fee`}
             </Button>
 
             <p className="text-xs text-dark-green/40 text-center">
-              You&apos;ll be redirected to complete payment via GCash, Maya, or card
+              Next: pay the reservation fee via GCash to confirm your pickup code.
             </p>
           </div>
         )}
